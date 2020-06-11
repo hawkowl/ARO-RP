@@ -4,6 +4,7 @@ package ready
 // Licensed under the Apache License 2.0.
 
 import (
+	"github.com/sirupsen/logrus"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -54,6 +55,17 @@ func CheckDaemonSetIsReady(cli appsv1client.DaemonSetInterface, name string) fun
 			return false, err
 		}
 
+		return DaemonSetIsReady(ds), nil
+	}
+}
+
+func CheckDaemonSetIsReadyRetryOnAllErrors(log *logrus.Entry, cli appsv1client.DaemonSetInterface, name string) func() (bool, error) {
+	return func() (bool, error) {
+		ds, err := cli.Get(name, metav1.GetOptions{})
+		if err != nil {
+			log.Info("CheckDaemonSetIsReadyRetryOnAllErrors ", err)
+			return false, nil
+		}
 		return DaemonSetIsReady(ds), nil
 	}
 }

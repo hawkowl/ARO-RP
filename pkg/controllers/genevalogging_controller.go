@@ -84,7 +84,8 @@ func (r *GenevaloggingReconciler) Reconcile(request ctrl.Request) (ctrl.Result, 
 
 	var objects []*unstructured.Unstructured
 	for _, res := range resources {
-		un, err := dynamichelper.ToUnstructured(res)
+		var un *unstructured.Unstructured
+		un, err = dynamichelper.ToUnstructured(res)
 		if err != nil {
 			r.Log.Error(err)
 			return reconcile.Result{}, err

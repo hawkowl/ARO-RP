@@ -10,6 +10,7 @@ import (
 	. "github.com/onsi/ginkgo"
 
 	"github.com/Azure/go-autorest/autorest/azure/auth"
+	operatorclient "github.com/openshift/client-go/operator/clientset/versioned"
 	machineapiclient "github.com/openshift/machine-api-operator/pkg/generated/clientset/versioned"
 	"github.com/sirupsen/logrus"
 	"k8s.io/client-go/kubernetes"
@@ -25,6 +26,7 @@ type clientSet struct {
 	Kubernetes        kubernetes.Interface
 	MachineAPI        machineapiclient.Interface
 	AROClusters       aroclient.AroV1alpha1Interface
+	Operators         operatorclient.Interface
 }
 
 var (
@@ -58,6 +60,11 @@ func newClientSet() (*clientSet, error) {
 		return nil, err
 	}
 
+	operatorscli, err := operatorclient.NewForConfig(restconfig)
+	if err != nil {
+		return nil, err
+	}
+
 	arocli, err := aroclient.NewForConfig(restconfig)
 	if err != nil {
 		return nil, err
@@ -68,6 +75,7 @@ func newClientSet() (*clientSet, error) {
 		Operations:        redhatopenshift.NewOperationsClient(os.Getenv("AZURE_SUBSCRIPTION_ID"), authorizer),
 		Kubernetes:        cli,
 		MachineAPI:        machineapicli,
+		Operators:         operatorscli,
 		AROClusters:       arocli,
 	}, nil
 }

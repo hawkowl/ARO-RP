@@ -13,6 +13,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
+	operatorv1 "github.com/openshift/api/operator/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,7 +33,7 @@ const (
 
 var pullSecretName = types.NamespacedName{Name: "pull-secret", Namespace: "openshift-config"}
 
-func pullSecretExistsAndNodesReady(namespace string, name string) (done bool, err error) {
+func pullSecretExistsAndClusterReady(namespace string, name string) (done bool, err error) {
 	_, err = clients.Kubernetes.CoreV1().Secrets(pullSecretName.Namespace).Get(pullSecretName.Name, metav1.GetOptions{})
 	if err != nil && apierrors.IsNotFound(err) {
 		return false, nil
@@ -50,13 +51,26 @@ func pullSecretExistsAndNodesReady(namespace string, name string) (done bool, er
 		}
 	}
 
-	return err == nil, err
+	apiserver, err := clients.Operators.OperatorV1().KubeAPIServers().Get("cluster", metav1.GetOptions{})
+	if err == nil {
+		m := make(map[string]operatorv1.ConditionStatus, len(apiserver.Status.Conditions))
+		for _, cond := range apiserver.Status.Conditions {
+			m[cond.Type] = cond.Status
+		}
+		if m["Available"] == operatorv1.ConditionTrue && m["Progressing"] == operatorv1.ConditionFalse {
+			return true, nil
+		}
+	}
+	log.Info("apiserver not ready ", err)
+
+	return false, nil
 }
 
 func operatorLogs() ([]byte, error) {
 	var logs []byte
 	err := retry.OnError(wait.Backoff{Steps: 5, Duration: 30 * time.Second, Factor: 1.5}, func(err error) bool {
-		// just after starting the cluster, there can be some tranient errors
+		// just after changing the pull secret there are some transient errors as
+		// the nodes are rotated
 		log.Info("operatorLogs: ", err)
 		return apierrors.IsTimeout(err) || apierrors.IsInvalid(err)
 	}, func() error {
@@ -90,7 +104,7 @@ func countMessages(msg []string) (map[string]int, error) {
 	result := map[string]int{}
 	rx := regexp.MustCompile(fmt.Sprintf(`.*msg="(%s).*`, strings.Join(msg, "|")))
 	changes := rx.FindAllStringSubmatch(string(b), -1)
-	if changes != nil && len(changes) > 0 {
+	if len(changes) > 0 {
 		for _, change := range changes {
 			if len(change) == 2 {
 				result[change[1]]++
@@ -111,7 +125,7 @@ func updatedObjects() ([]string, error) {
 	result := []string{}
 	rx := regexp.MustCompile(`.*msg="(Update|Create) ([a-zA-Z\/.]+).*`)
 	changes := rx.FindAllStringSubmatch(string(b), -1)
-	if changes != nil && len(changes) > 0 {
+	if len(changes) > 0 {
 		for _, change := range changes {
 			if len(change) == 3 {
 				result = append(result, change[1]+" "+change[2])
@@ -174,7 +188,7 @@ var _ = Describe("ARO Operator", func() {
 	Specify("genevalogging must be repaired if deployment deleted", func() {
 		mdsdReady := ready.CheckDaemonSetIsReadyRetryOnAllErrors(log, clients.Kubernetes.AppsV1().DaemonSets("openshift-azure-logging"), "mdsd")
 
-		err := wait.PollImmediate(30*time.Second, 10*time.Minute, mdsdReady)
+		err := wait.PollImmediate(30*time.Second, 15*time.Minute, mdsdReady)
 		Expect(err).NotTo(HaveOccurred())
 		initial, err := updatedObjects()
 		Expect(err).NotTo(HaveOccurred())
@@ -202,7 +216,7 @@ var _ = Describe("ARO Operator", func() {
 		log.Info("initialCount ", initial)
 
 		// Verify pull secret exists
-		exists, err := pullSecretExistsAndNodesReady(pullSecretName.Namespace, pullSecretName.Name)
+		exists, err := pullSecretExistsAndClusterReady(pullSecretName.Namespace, pullSecretName.Name)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(exists).To(BeTrue())
 
@@ -210,7 +224,8 @@ var _ = Describe("ARO Operator", func() {
 		err = clients.Kubernetes.CoreV1().Secrets(pullSecretName.Namespace).Delete(pullSecretName.Name, &metav1.DeleteOptions{})
 		Expect(err).NotTo(HaveOccurred())
 
-		time.Sleep(time.Minute)
+		// give the cluster some time to start rotating the nodes
+		time.Sleep(5 * time.Minute)
 
 		// Wait for it to be fixed
 		err = wait.PollImmediate(30*time.Second, 15*time.Minute, func() (bool, error) {
@@ -222,7 +237,7 @@ var _ = Describe("ARO Operator", func() {
 
 		// Wait for secret and nodes to settle
 		err = wait.PollImmediate(30*time.Second, 15*time.Minute, func() (bool, error) {
-			return pullSecretExistsAndNodesReady(pullSecretName.Namespace, pullSecretName.Name)
+			return pullSecretExistsAndClusterReady(pullSecretName.Namespace, pullSecretName.Name)
 		})
 		Expect(err).NotTo(HaveOccurred())
 	})

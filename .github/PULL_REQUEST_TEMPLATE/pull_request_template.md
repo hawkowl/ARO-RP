@@ -5,7 +5,7 @@ Please include a link to the VSTS work item as well as any GitHub issues.
 
 Usage: `Fixes #<GitHub issue number>`, or `Fixes (paste link of issue)`.
 -->
-Fixes
+Fixes 
 
 ### What this PR does / why we need it:
 

@@ -11,13 +11,12 @@ from azure.cli.core import AzCommandsLoader
 from azure.cli.core.commands import CliCommandType
 from knack.help_files import helps
 
-_MODULE = __name__
 _HERE = pathlib.Path(__file__).resolve().parent
 
 
 class AroCommandsLoader(AzCommandsLoader):
     def __init__(self, cli_ctx=None):
-        aro_custom = CliCommandType(operations_tmpl=_MODULE + '.custom#{}',
+        aro_custom = CliCommandType(operations_tmpl=__name__ + '.custom#{}',
                                     client_factory=cf_aro)
         super(AroCommandsLoader, self).__init__(cli_ctx=cli_ctx,
                                                 custom_command_type=aro_custom)

@@ -5,17 +5,18 @@ from azure.cli.core.commands import CliCommandType
 from azext_aro._client_factory import cf_aro
 from azext_aro._format import aro_show_table_format
 from azext_aro._format import aro_list_table_format
-from . import _MODULE
 
-if _MODULE == "azext_aro":
-    _TEMPL = "azext_aro.vendored_sdks.azure.mgmt.redhatopenshift.v2020_04_30.operations"
+_MODULE = __name__.split('.')[0]
+
+if _MODULE == 'azext_aro':
+    _TEMPL = 'azext_aro.vendored_sdks.azure.mgmt.redhatopenshift.v2020_04_30.operations'
 else:
-    _TEMPL = "azure.mgmt.redhatopenshift.operations"
+    _TEMPL = 'azure.mgmt.redhatopenshift.operations'
 
 
 def load_command_table(self, _):
     aro_sdk = CliCommandType(
-        operations_tmpl=_TEMPL + '#OpenShiftClustersOperations.{}',  # pylint: disable=line-too-long
+        operations_tmpl=_TEMPL + '#OpenShiftClustersOperations.{}',
         client_factory=cf_aro)
 
     with self.command_group('aro', aro_sdk, client_factory=cf_aro) as g:

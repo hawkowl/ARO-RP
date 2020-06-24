@@ -132,7 +132,7 @@ def validate_subnet(key):
             client.subnets.get(parts['resource_group'],
                                parts['name'], parts['child_name_1'])
         except CloudError as err:
-            raise CLIError(err.message)
+            raise CLIError(err.args[0])
 
     return _validate_subnet
 

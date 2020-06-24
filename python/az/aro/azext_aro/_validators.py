@@ -81,8 +81,8 @@ def validate_pull_secret(namespace):
     else:
         try:
             if not isinstance(json.loads(namespace.pull_secret), dict):
-                raise Exception()
-        except:
+                raise ValueError()
+        except ValueError:
             raise CLIError("Invalid --pull-secret.")
 
 

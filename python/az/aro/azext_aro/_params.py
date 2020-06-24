@@ -1,18 +1,18 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the Apache License 2.0.
 
-from azext_aro._validators import validate_cidr
-from azext_aro._validators import validate_client_id
-from azext_aro._validators import validate_client_secret
-from azext_aro._validators import validate_cluster_resource_group
-from azext_aro._validators import validate_domain
-from azext_aro._validators import validate_pull_secret
-from azext_aro._validators import validate_subnet
-from azext_aro._validators import validate_visibility
-from azext_aro._validators import validate_vnet
-from azext_aro._validators import validate_vnet_resource_group_name
-from azext_aro._validators import validate_worker_count
-from azext_aro._validators import validate_worker_vm_disk_size_gb
+from ._validators import validate_cidr
+from ._validators import validate_client_id
+from ._validators import validate_client_secret
+from ._validators import validate_cluster_resource_group
+from ._validators import validate_domain
+from ._validators import validate_pull_secret
+from ._validators import validate_subnet
+from ._validators import validate_visibility
+from ._validators import validate_vnet
+from ._validators import validate_vnet_resource_group_name
+from ._validators import validate_worker_count
+from ._validators import validate_worker_vm_disk_size_gb
 from azure.cli.core.commands.parameters import name_type
 from azure.cli.core.commands.parameters import get_enum_type
 from azure.cli.core.commands.parameters import resource_group_name_type

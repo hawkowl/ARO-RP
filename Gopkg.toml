@@ -140,6 +140,12 @@ required = [
   name = "gopkg.in/fsnotify.v1"
   source = "https://github.com/fsnotify/fsnotify.git"
 
+# XXX: to prevent CI failing
+[[override]]
+  name = "github.com/jim-minter/go-cosmosdb"
+  source = "https://github.com/hawkowl/go-cosmosdb.git"
+  branch = "hawkowl/test"
+
 [prune]
   go-tests = true
   unused-packages = true

@@ -708,15 +708,16 @@
   version = "v1.0"
 
 [[projects]]
-  branch = "master"
-  digest = "1:11a561b078819a1cd5d9d9c52031e8476e9ee7622f2b3b054850940a7d167971"
+  branch = "hawkowl/test"
+  digest = "1:abdbee1c0b52189b746c8dfe5eae32ec7809ca12c2eb63736c3f93139708b640"
   name = "github.com/jim-minter/go-cosmosdb"
   packages = [
     "cmd/gencosmosdb",
     "pkg/gencosmosdb",
   ]
   pruneopts = "UT"
-  revision = "0e3ac7c97cf21cf5fcd6315b6ed273db35b3c531"
+  revision = "5ae2edd3914b891b28b5cabbd876ddba61342406"
+  source = "https://github.com/hawkowl/go-cosmosdb.git"
 
 [[projects]]
   digest = "1:bb81097a5b62634f3e9fec1014657855610c82d19b9a40c17612e32651e35dca"
@@ -2293,6 +2294,7 @@
     "github.com/containers/image/types",
     "github.com/coreos/go-systemd/journal",
     "github.com/dgrijalva/jwt-go",
+    "github.com/fvbommel/sortorder",
     "github.com/ghodss/yaml",
     "github.com/go-bindata/go-bindata/go-bindata",
     "github.com/go-logr/logr",

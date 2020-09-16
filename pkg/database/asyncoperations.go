@@ -35,6 +35,13 @@ func NewAsyncOperations(uuid string, dbc cosmosdb.DatabaseClient, dbid, collid s
 	}, nil
 }
 
+func NewAsyncOperationsWithProvidedClient(uuid string, client cosmosdb.AsyncOperationDocumentClient) *asyncOperations {
+	return &asyncOperations{
+		c:    client,
+		uuid: uuid,
+	}
+}
+
 func (c *asyncOperations) Create(ctx context.Context, doc *api.AsyncOperationDocument) (*api.AsyncOperationDocument, error) {
 	if doc.ID != strings.ToLower(doc.ID) {
 		return nil, fmt.Errorf("id %q is not lower case", doc.ID)

@@ -449,6 +449,14 @@
   version = "v1.4.9"
 
 [[projects]]
+  digest = "1:3c63c98920ccbc2406b43500a88fb0c29d16a3650c1e4fec1119c67eebcc27e4"
+  name = "github.com/fvbommel/sortorder"
+  packages = ["."]
+  pruneopts = "NUT"
+  revision = "a1ddee917217bbd0691affdca9c88d24d3f5c27d"
+  version = "v1.0.1"
+
+[[projects]]
   digest = "1:2cd7915ab26ede7d95b8749e6b1f933f1c6d5398030684e6505940a10f31cfda"
   name = "github.com/ghodss/yaml"
   packages = ["."]

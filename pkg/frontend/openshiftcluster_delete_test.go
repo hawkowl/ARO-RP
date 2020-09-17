@@ -35,7 +35,7 @@ func TestDeleteOpenShiftCluster(t *testing.T) {
 	for _, tt := range []*test{
 		{
 			name:       "cluster exists in db",
-			resourceID: getResourcePath(mockSubID, "resourceName"),
+			resourceID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			fixture: func(f *testdatabase.Fixture) {
 				f.AddSubscriptionDocument(&api.SubscriptionDocument{
 					ID: mockSubID,
@@ -47,10 +47,10 @@ func TestDeleteOpenShiftCluster(t *testing.T) {
 					},
 				})
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key:      strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key:      strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					Dequeues: 1,
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openshiftClusters",
 						Properties: api.OpenShiftClusterProperties{
@@ -61,7 +61,7 @@ func TestDeleteOpenShiftCluster(t *testing.T) {
 			},
 			wantDocuments: func(c *testdatabase.Checker) {
 				c.AddAsyncOperationDocument(&api.AsyncOperationDocument{
-					OpenShiftClusterKey: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					OpenShiftClusterKey: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					AsyncOperation: &api.AsyncOperation{
 						InitialProvisioningState: api.ProvisioningStateDeleting,
 						ProvisioningState:        api.ProvisioningStateDeleting,
@@ -69,9 +69,9 @@ func TestDeleteOpenShiftCluster(t *testing.T) {
 				})
 
 				c.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openshiftClusters",
 						Properties: api.OpenShiftClusterProperties{
@@ -86,12 +86,12 @@ func TestDeleteOpenShiftCluster(t *testing.T) {
 		},
 		{
 			name:           "cluster not found in db",
-			resourceID:     getResourcePath(mockSubID, "resourceName"),
+			resourceID:     testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			wantStatusCode: http.StatusNoContent,
 		},
 		{
 			name:           "internal error",
-			resourceID:     getResourcePath(mockSubID, "resourceName"),
+			resourceID:     testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			dbError:        &cosmosdb.Error{Code: "500", Message: "blah"},
 			wantStatusCode: http.StatusInternalServerError,
 			wantError:      `500: InternalServerError: : Internal server error.`,

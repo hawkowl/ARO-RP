@@ -13,6 +13,8 @@ import (
 	"github.com/Azure/ARO-RP/pkg/api"
 )
 
+const DELETION_TIME_SET = 123456789
+
 type Checker struct {
 	openshiftClusterDocuments []*api.OpenShiftClusterDocument
 	subscriptionDocuments     []*api.SubscriptionDocument
@@ -58,7 +60,20 @@ func (f *Checker) AddAsyncOperationDocument(doc *api.AsyncOperationDocument) {
 	f.asyncOperationDocuments = append(f.asyncOperationDocuments, doc)
 }
 
-func (f *Checker) Check() []error {
+func (f *Checker) Check() (errs []error) {
+	for _, err := range f.CheckAsyncOperations() {
+		errs = append(errs, err)
+	}
+	for _, err := range f.CheckOpenShiftCluster() {
+		errs = append(errs, err)
+	}
+	for _, err := range f.CheckBilling() {
+		errs = append(errs, err)
+	}
+	return errs
+}
+
+func (f *Checker) CheckAsyncOperations() []error {
 	var errs []error
 	ctx := context.Background()
 
@@ -77,7 +92,14 @@ func (f *Checker) Check() []error {
 	} else if len(allAsyncDocs.AsyncOperationDocuments) != 0 || len(f.asyncOperationDocuments) != 0 {
 		errs = append(errs, fmt.Errorf("async docs length different, %d vs %d", len(allAsyncDocs.AsyncOperationDocuments), len(f.asyncOperationDocuments)))
 	}
+	return errs
+}
 
+func (f *Checker) CheckOpenShiftCluster() []error {
+	var errs []error
+	ctx := context.Background()
+
+	// OpenShiftCluster
 	allOpenShiftDocs, err := f.clients.OpenShiftClusters.ListAll(ctx, nil)
 	if err != nil {
 		return []error{err}
@@ -91,7 +113,38 @@ func (f *Checker) Check() []error {
 			}
 		}
 	} else if len(allOpenShiftDocs.OpenShiftClusterDocuments) != 0 || len(f.openshiftClusterDocuments) != 0 {
-		errs = append(errs, fmt.Errorf("async docs length different, %d vs %d", len(allOpenShiftDocs.OpenShiftClusterDocuments), len(f.openshiftClusterDocuments)))
+		errs = append(errs, fmt.Errorf("openshiftcluster length different, %d vs %d", len(allOpenShiftDocs.OpenShiftClusterDocuments), len(f.openshiftClusterDocuments)))
 	}
+
+	return errs
+}
+func (f *Checker) CheckBilling() []error {
+	var errs []error
+	ctx := context.Background()
+
+	// Billing
+	allBilling, err := f.clients.Billing.ListAll(ctx, nil)
+	if err != nil {
+		return []error{err}
+	}
+
+	// If they exist, change certain values to magic ones
+	for _, doc := range allBilling.BillingDocuments {
+		if doc.Billing.DeletionTime != 0 {
+			doc.Billing.DeletionTime = DELETION_TIME_SET
+		}
+	}
+
+	if len(f.billingDocuments) != 0 && len(allBilling.BillingDocuments) == len(f.billingDocuments) {
+		diff := deep.Equal(allBilling.BillingDocuments, f.billingDocuments)
+		if diff != nil {
+			for _, i := range diff {
+				errs = append(errs, errors.New(i))
+			}
+		}
+	} else if len(allBilling.BillingDocuments) != 0 || len(f.billingDocuments) != 0 {
+		errs = append(errs, fmt.Errorf("billing length different, %d vs %d", len(allBilling.BillingDocuments), len(f.billingDocuments)))
+	}
+
 	return errs
 }

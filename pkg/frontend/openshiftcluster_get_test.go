@@ -35,12 +35,12 @@ func TestGetOpenShiftCluster(t *testing.T) {
 	for _, tt := range []*test{
 		{
 			name:       "cluster exists in db",
-			resourceID: getResourcePath(mockSubID, "resourceName"),
+			resourceID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			fixture: func(f *testdatabase.Fixture) {
 				clusterDoc := &api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openshiftClusters",
 						Properties: api.OpenShiftClusterProperties{
@@ -55,7 +55,7 @@ func TestGetOpenShiftCluster(t *testing.T) {
 				}
 				f.AddOpenShiftClusterDocument(clusterDoc)
 			},
-			wantEnriched:   []string{getResourcePath(mockSubID, "resourceName")},
+			wantEnriched:   []string{testdatabase.GetResourcePath(mockSubID, "resourceName")},
 			wantStatusCode: http.StatusOK,
 			wantResponse: func(tt *test) *v20200430.OpenShiftCluster {
 				return &v20200430.OpenShiftCluster{
@@ -67,13 +67,13 @@ func TestGetOpenShiftCluster(t *testing.T) {
 		},
 		{
 			name:           "cluster not found in db",
-			resourceID:     getResourcePath(mockSubID, "resourceName"),
+			resourceID:     testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			wantStatusCode: http.StatusNotFound,
 			wantError:      `404: ResourceNotFound: : The Resource 'openshiftclusters/resourcename' under resource group 'resourcegroup' was not found.`,
 		},
 		{
 			name:           "internal error",
-			resourceID:     getResourcePath(mockSubID, "resourceName"),
+			resourceID:     testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			dbError:        &cosmosdb.Error{Code: "500", Message: "oh no"},
 			wantStatusCode: http.StatusInternalServerError,
 			wantError:      `500: InternalServerError: : Internal server error.`,

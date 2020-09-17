@@ -41,9 +41,9 @@ func TestAdminListOpenShiftCluster(t *testing.T) {
 				f.AddOpenShiftClusterDocuments(
 					[]*api.OpenShiftClusterDocument{
 						{
-							Key: strings.ToLower(getResourcePath(mockSubID, "resourceName1")),
+							Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName1")),
 							OpenShiftCluster: &api.OpenShiftCluster{
-								ID:   getResourcePath(mockSubID, "resourceName1"),
+								ID:   testdatabase.GetResourcePath(mockSubID, "resourceName1"),
 								Name: "resourceName1",
 								Type: "Microsoft.RedHatOpenShift/openshiftClusters",
 								Properties: api.OpenShiftClusterProperties{
@@ -57,9 +57,9 @@ func TestAdminListOpenShiftCluster(t *testing.T) {
 							},
 						},
 						{
-							Key: strings.ToLower(getResourcePath(otherMockSubID, "resourceName2")),
+							Key: strings.ToLower(testdatabase.GetResourcePath(otherMockSubID, "resourceName2")),
 							OpenShiftCluster: &api.OpenShiftCluster{
-								ID:   getResourcePath(otherMockSubID, "resourceName2"),
+								ID:   testdatabase.GetResourcePath(otherMockSubID, "resourceName2"),
 								Name: "resourceName2",
 								Type: "Microsoft.RedHatOpenShift/openshiftClusters",
 								Properties: api.OpenShiftClusterProperties{
@@ -74,17 +74,17 @@ func TestAdminListOpenShiftCluster(t *testing.T) {
 						},
 					})
 			},
-			wantEnriched:   []string{getResourcePath(mockSubID, "resourceName1"), getResourcePath(otherMockSubID, "resourceName2")},
+			wantEnriched:   []string{testdatabase.GetResourcePath(mockSubID, "resourceName1"), testdatabase.GetResourcePath(otherMockSubID, "resourceName2")},
 			wantStatusCode: http.StatusOK,
 			wantResponse: &admin.OpenShiftClusterList{
 				OpenShiftClusters: []*admin.OpenShiftCluster{
 					{
-						ID:   getResourcePath(mockSubID, "resourceName1"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName1"),
 						Name: "resourceName1",
 						Type: "Microsoft.RedHatOpenShift/openshiftClusters",
 					},
 					{
-						ID:   getResourcePath(otherMockSubID, "resourceName2"),
+						ID:   testdatabase.GetResourcePath(otherMockSubID, "resourceName2"),
 						Name: "resourceName2",
 						Type: "Microsoft.RedHatOpenShift/openshiftClusters",
 					},

@@ -39,12 +39,12 @@ func TestAdminListResourcesList(t *testing.T) {
 	for _, tt := range []*test{
 		{
 			name:       "basic coverage",
-			resourceID: getResourcePath(mockSubID, "resourceName"),
+			resourceID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			fixture: func(f *testdatabase.Fixture) {
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID: getResourcePath(mockSubID, "resourceName"),
+						ID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Properties: api.OpenShiftClusterProperties{
 							ClusterProfile: api.ClusterProfile{
 								ResourceGroupID: fmt.Sprintf("/subscriptions/%s/resourceGroups/test-cluster", mockSubID),

@@ -167,3 +167,7 @@ func (i *fakeOpenShiftClustersQueueLengthIterator) NextRaw(ctx context.Context, 
 func (i *fakeOpenShiftClustersQueueLengthIterator) Continuation() string {
 	return ""
 }
+
+func GetResourcePath(subscriptionID string, resourceID string) string {
+	return fmt.Sprintf("/subscriptions/%s/resourcegroups/resourceGroup/providers/Microsoft.RedHatOpenShift/openShiftClusters/%s", subscriptionID, resourceID)
+}

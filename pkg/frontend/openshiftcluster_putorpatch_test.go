@@ -56,7 +56,7 @@ func TestPutOrPatchOpenShiftClusterAdminAPI(t *testing.T) {
 	for _, tt := range []*test{
 		{
 			name:       "patch with empty request",
-			resourceID: getResourcePath(mockSubID, "resourceName"),
+			resourceID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			request: func(oc *admin.OpenShiftCluster) {
 			},
 			isPatch: true,
@@ -71,9 +71,9 @@ func TestPutOrPatchOpenShiftClusterAdminAPI(t *testing.T) {
 					},
 				})
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Tags: map[string]string{"tag": "will-be-kept"},
 						Properties: api.OpenShiftClusterProperties{
@@ -82,19 +82,19 @@ func TestPutOrPatchOpenShiftClusterAdminAPI(t *testing.T) {
 					},
 				})
 			},
-			wantEnriched: []string{getResourcePath(mockSubID, "resourceName")},
+			wantEnriched: []string{testdatabase.GetResourcePath(mockSubID, "resourceName")},
 			wantDocuments: func(c *testdatabase.Checker) {
 				c.AddAsyncOperationDocument(&api.AsyncOperationDocument{
-					OpenShiftClusterKey: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					OpenShiftClusterKey: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					AsyncOperation: &api.AsyncOperation{
 						InitialProvisioningState: api.ProvisioningStateAdminUpdating,
 						ProvisioningState:        api.ProvisioningStateAdminUpdating,
 					},
 				})
 				c.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Tags: map[string]string{"tag": "will-be-kept"},
 						Properties: api.OpenShiftClusterProperties{
@@ -107,7 +107,7 @@ func TestPutOrPatchOpenShiftClusterAdminAPI(t *testing.T) {
 			wantAsync:      true,
 			wantStatusCode: http.StatusOK,
 			wantResponse: &admin.OpenShiftCluster{
-				ID:   getResourcePath(mockSubID, "resourceName"),
+				ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 				Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 				Tags: map[string]string{"tag": "will-be-kept"},
 				Properties: admin.OpenShiftClusterProperties{
@@ -118,7 +118,7 @@ func TestPutOrPatchOpenShiftClusterAdminAPI(t *testing.T) {
 		},
 		{
 			name:       "patch a cluster with registry profile should ignore registry profile",
-			resourceID: getResourcePath(mockSubID, "resourceName"),
+			resourceID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			request: func(oc *admin.OpenShiftCluster) {
 				oc.Properties.ClusterProfile.Domain = "changed"
 				oc.Name = "resourceName"
@@ -141,9 +141,9 @@ func TestPutOrPatchOpenShiftClusterAdminAPI(t *testing.T) {
 					},
 				})
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Tags: map[string]string{"tag": "will-be-kept"},
@@ -155,16 +155,16 @@ func TestPutOrPatchOpenShiftClusterAdminAPI(t *testing.T) {
 			},
 			wantDocuments: func(c *testdatabase.Checker) {
 				c.AddAsyncOperationDocument(&api.AsyncOperationDocument{
-					OpenShiftClusterKey: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					OpenShiftClusterKey: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					AsyncOperation: &api.AsyncOperation{
 						InitialProvisioningState: api.ProvisioningStateAdminUpdating,
 						ProvisioningState:        api.ProvisioningStateAdminUpdating,
 					},
 				})
 				c.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Tags: map[string]string{"tag": "will-be-kept"},
@@ -177,11 +177,11 @@ func TestPutOrPatchOpenShiftClusterAdminAPI(t *testing.T) {
 						},
 					}})
 			},
-			wantEnriched:   []string{getResourcePath(mockSubID, "resourceName")},
+			wantEnriched:   []string{testdatabase.GetResourcePath(mockSubID, "resourceName")},
 			wantAsync:      true,
 			wantStatusCode: http.StatusOK,
 			wantResponse: &admin.OpenShiftCluster{
-				ID:   getResourcePath(mockSubID, "resourceName"),
+				ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 				Name: "resourceName",
 				Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 				Tags: map[string]string{"tag": "will-be-kept"},
@@ -227,7 +227,7 @@ func TestPutOrPatchOpenShiftClusterAdminAPI(t *testing.T) {
 			}
 
 			resp, b, err := ti.request(method,
-				"https://server"+getResourcePath(mockSubID, "resourceName")+"?api-version=admin",
+				"https://server"+testdatabase.GetResourcePath(mockSubID, "resourceName")+"?api-version=admin",
 				http.Header{
 					"Content-Type": []string{"application/json"},
 				}, oc)
@@ -299,7 +299,7 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 	for _, tt := range []*test{
 		{
 			name:       "create a new cluster",
-			resourceID: getResourcePath(mockSubID, "resourceName"),
+			resourceID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			request: func(oc *v20200430.OpenShiftCluster) {
 				oc.Properties.ClusterProfile.Version = "4.3.0"
 			},
@@ -316,17 +316,17 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 			},
 			wantDocuments: func(c *testdatabase.Checker) {
 				c.AddAsyncOperationDocument(&api.AsyncOperationDocument{
-					OpenShiftClusterKey: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					OpenShiftClusterKey: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					AsyncOperation: &api.AsyncOperation{
 						InitialProvisioningState: api.ProvisioningStateCreating,
 						ProvisioningState:        api.ProvisioningStateCreating,
 					},
 				})
 				c.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key:    strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key:    strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					Bucket: 1,
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Properties: api.OpenShiftClusterProperties{
@@ -342,7 +342,7 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 			wantAsync:      true,
 			wantStatusCode: http.StatusCreated,
 			wantResponse: &v20200430.OpenShiftCluster{
-				ID:   getResourcePath(mockSubID, "resourceName"),
+				ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 				Name: "resourceName",
 				Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 				Properties: v20200430.OpenShiftClusterProperties{
@@ -355,7 +355,7 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 		},
 		{
 			name:       "update a cluster from succeeded",
-			resourceID: getResourcePath(mockSubID, "resourceName"),
+			resourceID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			request: func(oc *v20200430.OpenShiftCluster) {
 				oc.Properties.ClusterProfile.Domain = "changed"
 			},
@@ -370,9 +370,9 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 					},
 				})
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Tags: map[string]string{"tag": "will-be-removed"},
@@ -393,16 +393,16 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 			},
 			wantDocuments: func(c *testdatabase.Checker) {
 				c.AddAsyncOperationDocument(&api.AsyncOperationDocument{
-					OpenShiftClusterKey: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					OpenShiftClusterKey: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					AsyncOperation: &api.AsyncOperation{
 						InitialProvisioningState: api.ProvisioningStateUpdating,
 						ProvisioningState:        api.ProvisioningStateUpdating,
 					},
 				})
 				c.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Properties: api.OpenShiftClusterProperties{
@@ -419,11 +419,11 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 					},
 				})
 			},
-			wantEnriched:   []string{getResourcePath(mockSubID, "resourceName")},
+			wantEnriched:   []string{testdatabase.GetResourcePath(mockSubID, "resourceName")},
 			wantAsync:      true,
 			wantStatusCode: http.StatusOK,
 			wantResponse: &v20200430.OpenShiftCluster{
-				ID:   getResourcePath(mockSubID, "resourceName"),
+				ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 				Name: "resourceName",
 				Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 				Properties: v20200430.OpenShiftClusterProperties{
@@ -436,7 +436,7 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 		},
 		{
 			name:       "update a cluster from failed during update",
-			resourceID: getResourcePath(mockSubID, "resourceName"),
+			resourceID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			request: func(oc *v20200430.OpenShiftCluster) {
 				oc.Properties.ClusterProfile.Domain = "changed"
 			},
@@ -451,9 +451,9 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 					},
 				})
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Tags: map[string]string{"tag": "will-be-removed"},
@@ -468,16 +468,16 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 			},
 			wantDocuments: func(c *testdatabase.Checker) {
 				c.AddAsyncOperationDocument(&api.AsyncOperationDocument{
-					OpenShiftClusterKey: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					OpenShiftClusterKey: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					AsyncOperation: &api.AsyncOperation{
 						InitialProvisioningState: api.ProvisioningStateUpdating,
 						ProvisioningState:        api.ProvisioningStateUpdating,
 					},
 				})
 				c.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Properties: api.OpenShiftClusterProperties{
@@ -491,11 +491,11 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 					},
 				})
 			},
-			wantEnriched:   []string{getResourcePath(mockSubID, "resourceName")},
+			wantEnriched:   []string{testdatabase.GetResourcePath(mockSubID, "resourceName")},
 			wantAsync:      true,
 			wantStatusCode: http.StatusOK,
 			wantResponse: &v20200430.OpenShiftCluster{
-				ID:   getResourcePath(mockSubID, "resourceName"),
+				ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 				Name: "resourceName",
 				Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 				Properties: v20200430.OpenShiftClusterProperties{
@@ -508,7 +508,7 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 		},
 		{
 			name:       "update a cluster from failed during creation",
-			resourceID: getResourcePath(mockSubID, "resourceName"),
+			resourceID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			request: func(oc *v20200430.OpenShiftCluster) {
 				oc.Properties.ClusterProfile.Domain = "changed"
 			},
@@ -523,9 +523,9 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 					},
 				})
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Properties: api.OpenShiftClusterProperties{
@@ -540,7 +540,7 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 		},
 		{
 			name:       "update a cluster from failed during deletion",
-			resourceID: getResourcePath(mockSubID, "resourceName"),
+			resourceID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			request: func(oc *v20200430.OpenShiftCluster) {
 				oc.Properties.ClusterProfile.Domain = "changed"
 			},
@@ -555,9 +555,9 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 					},
 				})
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Properties: api.OpenShiftClusterProperties{
@@ -572,7 +572,7 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 		},
 		{
 			name:       "patch a cluster from succeeded",
-			resourceID: getResourcePath(mockSubID, "resourceName"),
+			resourceID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			request: func(oc *v20200430.OpenShiftCluster) {
 				oc.Properties.ClusterProfile.Domain = "changed"
 				oc.Properties.IngressProfiles = []v20200430.IngressProfile{{Name: "changed"}}
@@ -590,9 +590,9 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 					},
 				})
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Tags: map[string]string{"tag": "will-be-kept"},
@@ -606,16 +606,16 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 			},
 			wantDocuments: func(c *testdatabase.Checker) {
 				c.AddAsyncOperationDocument(&api.AsyncOperationDocument{
-					OpenShiftClusterKey: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					OpenShiftClusterKey: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					AsyncOperation: &api.AsyncOperation{
 						InitialProvisioningState: api.ProvisioningStateUpdating,
 						ProvisioningState:        api.ProvisioningStateUpdating,
 					},
 				})
 				c.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Tags: map[string]string{"tag": "will-be-kept"},
@@ -631,11 +631,11 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 					},
 				})
 			},
-			wantEnriched:   []string{getResourcePath(mockSubID, "resourceName")},
+			wantEnriched:   []string{testdatabase.GetResourcePath(mockSubID, "resourceName")},
 			wantAsync:      true,
 			wantStatusCode: http.StatusOK,
 			wantResponse: &v20200430.OpenShiftCluster{
-				ID:   getResourcePath(mockSubID, "resourceName"),
+				ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 				Name: "resourceName",
 				Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 				Tags: map[string]string{"tag": "will-be-kept"},
@@ -651,7 +651,7 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 		},
 		{
 			name:       "patch a cluster from failed during update",
-			resourceID: getResourcePath(mockSubID, "resourceName"),
+			resourceID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			request: func(oc *v20200430.OpenShiftCluster) {
 				oc.Properties.ClusterProfile.Domain = "changed"
 			},
@@ -667,9 +667,9 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 					},
 				})
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Tags: map[string]string{"tag": "will-be-kept"},
@@ -684,16 +684,16 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 			},
 			wantDocuments: func(c *testdatabase.Checker) {
 				c.AddAsyncOperationDocument(&api.AsyncOperationDocument{
-					OpenShiftClusterKey: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					OpenShiftClusterKey: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					AsyncOperation: &api.AsyncOperation{
 						InitialProvisioningState: api.ProvisioningStateUpdating,
 						ProvisioningState:        api.ProvisioningStateUpdating,
 					},
 				})
 				c.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Tags: map[string]string{"tag": "will-be-kept"},
@@ -710,11 +710,11 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 					},
 				})
 			},
-			wantEnriched:   []string{getResourcePath(mockSubID, "resourceName")},
+			wantEnriched:   []string{testdatabase.GetResourcePath(mockSubID, "resourceName")},
 			wantAsync:      true,
 			wantStatusCode: http.StatusOK,
 			wantResponse: &v20200430.OpenShiftCluster{
-				ID:   getResourcePath(mockSubID, "resourceName"),
+				ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 				Name: "resourceName",
 				Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 				Tags: map[string]string{"tag": "will-be-kept"},
@@ -730,7 +730,7 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 		},
 		{
 			name:       "patch a cluster from failed during creation",
-			resourceID: getResourcePath(mockSubID, "resourceName"),
+			resourceID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			request: func(oc *v20200430.OpenShiftCluster) {
 				oc.Properties.ClusterProfile.Domain = "changed"
 			},
@@ -746,9 +746,9 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 					},
 				})
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Properties: api.OpenShiftClusterProperties{
@@ -763,7 +763,7 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 		},
 		{
 			name:       "patch a cluster from failed during deletion",
-			resourceID: getResourcePath(mockSubID, "resourceName"),
+			resourceID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			request: func(oc *v20200430.OpenShiftCluster) {
 				oc.Properties.ClusterProfile.Domain = "changed"
 			},
@@ -779,9 +779,9 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 					},
 				})
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Properties: api.OpenShiftClusterProperties{
@@ -796,7 +796,7 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 		},
 		{
 			name:       "creating cluster failing when provided cluster resource group already contains a cluster",
-			resourceID: getResourcePath(mockSubID, "resourceName"),
+			resourceID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			request: func(oc *v20200430.OpenShiftCluster) {
 				oc.Properties.ServicePrincipalProfile.ClientID = mockSubID
 				oc.Properties.ClusterProfile.ResourceGroupID = fmt.Sprintf("/subscriptions/%s/resourcegroups/aro-vjb21wca", mockSubID)
@@ -812,10 +812,10 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 					},
 				})
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key:                       strings.ToLower(getResourcePath(mockSubID, "otherResourceName")),
+					Key:                       strings.ToLower(testdatabase.GetResourcePath(mockSubID, "otherResourceName")),
 					ClusterResourceGroupIDKey: strings.ToLower(fmt.Sprintf("/subscriptions/%s/resourcegroups/aro-vjb21wca", mockSubID)),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "otherResourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "otherResourceName"),
 						Name: "otherResourceName",
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Properties: api.OpenShiftClusterProperties{
@@ -837,7 +837,7 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 		},
 		{
 			name:       "creating cluster failing when provided client ID is not unique",
-			resourceID: getResourcePath(mockSubID, "resourceName"),
+			resourceID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			request: func(oc *v20200430.OpenShiftCluster) {
 				oc.Properties.ServicePrincipalProfile.ClientID = mockSubID
 			},
@@ -852,10 +852,10 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 					},
 				})
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key:         strings.ToLower(getResourcePath(mockSubID, "otherResourceName")),
+					Key:         strings.ToLower(testdatabase.GetResourcePath(mockSubID, "otherResourceName")),
 					ClientIDKey: mockSubID,
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "otherResourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "otherResourceName"),
 						Name: "otherResourceName",
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						Properties: api.OpenShiftClusterProperties{
@@ -907,7 +907,7 @@ func TestPutOrPatchOpenShiftCluster(t *testing.T) {
 			}
 
 			resp, b, err := ti.request(method,
-				"https://server"+getResourcePath(mockSubID, "resourceName")+"?api-version=2020-04-30",
+				"https://server"+testdatabase.GetResourcePath(mockSubID, "resourceName")+"?api-version=2020-04-30",
 				http.Header{
 					"Content-Type": []string{"application/json"},
 				}, oc)

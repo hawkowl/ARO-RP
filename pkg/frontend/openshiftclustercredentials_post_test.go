@@ -47,9 +47,9 @@ func TestPostOpenShiftClusterCredentials(t *testing.T) {
 			resourceID: fmt.Sprintf("/subscriptions/%s/resourcegroups/resourceGroup/providers/Microsoft.RedHatOpenShift/openShiftClusters/resourceName", mockSubID),
 			fixture: func(f *testdatabase.Fixture) {
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openshiftClusters",
 						Properties: api.OpenShiftClusterProperties{
@@ -94,9 +94,9 @@ func TestPostOpenShiftClusterCredentials(t *testing.T) {
 			resourceID: fmt.Sprintf("/subscriptions/%s/resourcegroups/resourceGroup/providers/Microsoft.RedHatOpenShift/openShiftClusters/resourceName", mockSubID),
 			fixture: func(f *testdatabase.Fixture) {
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openshiftClusters",
 						Properties: api.OpenShiftClusterProperties{
@@ -128,9 +128,9 @@ func TestPostOpenShiftClusterCredentials(t *testing.T) {
 			resourceID: fmt.Sprintf("/subscriptions/%s/resourcegroups/resourceGroup/providers/Microsoft.RedHatOpenShift/openShiftClusters/resourceName", mockSubID),
 			fixture: func(f *testdatabase.Fixture) {
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openshiftClusters",
 						Properties: api.OpenShiftClusterProperties{
@@ -162,9 +162,9 @@ func TestPostOpenShiftClusterCredentials(t *testing.T) {
 			resourceID: fmt.Sprintf("/subscriptions/%s/resourcegroups/resourceGroup/providers/Microsoft.RedHatOpenShift/openShiftClusters/resourceName", mockSubID),
 			fixture: func(f *testdatabase.Fixture) {
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openshiftClusters",
 						Properties: api.OpenShiftClusterProperties{
@@ -197,9 +197,9 @@ func TestPostOpenShiftClusterCredentials(t *testing.T) {
 			resourceID: fmt.Sprintf("/subscriptions/%s/resourcegroups/resourceGroup/providers/Microsoft.RedHatOpenShift/openShiftClusters/resourceName", mockSubID),
 			fixture: func(f *testdatabase.Fixture) {
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "resourceName"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openshiftClusters",
 						Properties: api.OpenShiftClusterProperties{

@@ -40,9 +40,9 @@ func TestGetAsyncOperationResult(t *testing.T) {
 			fixture: func(f *testdatabase.Fixture) {
 				clusterDoc := &api.OpenShiftClusterDocument{
 					ID:  mockClusterDocKey,
-					Key: strings.ToLower(getResourcePath(mockSubID, "fakeClusterID")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "fakeClusterID")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, "fakeClusterID"),
+						ID:   testdatabase.GetResourcePath(mockSubID, "fakeClusterID"),
 						Name: "resourceName",
 						Type: "Microsoft.RedHatOpenShift/openshiftClusters",
 						Properties: api.OpenShiftClusterProperties{
@@ -57,7 +57,7 @@ func TestGetAsyncOperationResult(t *testing.T) {
 				}
 				asyncDoc := &api.AsyncOperationDocument{
 					ID:                  mockOpID,
-					OpenShiftClusterKey: strings.ToLower(getResourcePath(mockSubID, "fakeClusterID")),
+					OpenShiftClusterKey: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "fakeClusterID")),
 					OpenShiftCluster:    clusterDoc.OpenShiftCluster,
 				}
 
@@ -66,7 +66,7 @@ func TestGetAsyncOperationResult(t *testing.T) {
 			},
 			wantStatusCode: http.StatusOK,
 			wantResponse: &v20200430.OpenShiftCluster{
-				ID:   getResourcePath(mockSubID, "fakeClusterID"),
+				ID:   testdatabase.GetResourcePath(mockSubID, "fakeClusterID"),
 				Name: "resourceName",
 				Type: "Microsoft.RedHatOpenShift/openshiftClusters",
 			},
@@ -76,7 +76,7 @@ func TestGetAsyncOperationResult(t *testing.T) {
 			fixture: func(f *testdatabase.Fixture) {
 				f.AddAsyncOperationDocument(&api.AsyncOperationDocument{
 					ID:                  mockOpID,
-					OpenShiftClusterKey: strings.ToLower(getResourcePath(mockSubID, "fakeClusterID")),
+					OpenShiftClusterKey: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "fakeClusterID")),
 				})
 			},
 			wantStatusCode: http.StatusNoContent,
@@ -86,10 +86,10 @@ func TestGetAsyncOperationResult(t *testing.T) {
 			fixture: func(f *testdatabase.Fixture) {
 				f.AddAsyncOperationDocument(&api.AsyncOperationDocument{
 					ID:                  mockOpID,
-					OpenShiftClusterKey: strings.ToLower(getResourcePath(mockSubID, "fakeClusterID")),
+					OpenShiftClusterKey: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "fakeClusterID")),
 				})
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key:              strings.ToLower(getResourcePath(mockSubID, "fakeClusterID")),
+					Key:              strings.ToLower(testdatabase.GetResourcePath(mockSubID, "fakeClusterID")),
 					AsyncOperationID: mockOpID,
 				})
 			},

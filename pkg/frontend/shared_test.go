@@ -205,7 +205,3 @@ func validateResponse(resp *http.Response, b []byte, wantStatusCode int, wantErr
 
 	return nil
 }
-
-func getResourcePath(subscriptionID string, resourceID string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourcegroups/resourceGroup/providers/Microsoft.RedHatOpenShift/openShiftClusters/%s", subscriptionID, resourceID)
-}

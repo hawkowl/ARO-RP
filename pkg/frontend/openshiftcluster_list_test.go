@@ -23,9 +23,9 @@ func makeDoc(num int) *api.OpenShiftClusterDocument {
 	resourceName := fmt.Sprintf("resourceName%d", num)
 	clientSecret := fmt.Sprintf("clientSecret%d", num)
 	return &api.OpenShiftClusterDocument{
-		Key: strings.ToLower(getResourcePath(mockSubID, resourceName)),
+		Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, resourceName)),
 		OpenShiftCluster: &api.OpenShiftCluster{
-			ID:   getResourcePath(mockSubID, resourceName),
+			ID:   testdatabase.GetResourcePath(mockSubID, resourceName),
 			Name: resourceName,
 			Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 			Properties: api.OpenShiftClusterProperties{
@@ -66,7 +66,7 @@ func TestListOpenShiftCluster(t *testing.T) {
 				}
 				f.AddOpenShiftClusterDocuments(docs)
 			},
-			wantEnriched:   []string{getResourcePath(mockSubID, "resourceName1"), getResourcePath(mockSubID, "resourceName2")},
+			wantEnriched:   []string{testdatabase.GetResourcePath(mockSubID, "resourceName1"), testdatabase.GetResourcePath(mockSubID, "resourceName2")},
 			wantStatusCode: http.StatusOK,
 			wantResponse: func() *v20200430.OpenShiftClusterList {
 				return &v20200430.OpenShiftClusterList{
@@ -77,7 +77,7 @@ func TestListOpenShiftCluster(t *testing.T) {
 							Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						},
 						{
-							ID:   getResourcePath(mockSubID, "resourceName2"),
+							ID:   testdatabase.GetResourcePath(mockSubID, "resourceName2"),
 							Name: "resourceName2",
 							Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						},
@@ -94,13 +94,13 @@ func TestListOpenShiftCluster(t *testing.T) {
 				}
 				f.AddOpenShiftClusterDocuments(docs)
 			},
-			wantEnriched:   []string{getResourcePath(mockSubID, "resourceName1"), getResourcePath(mockSubID, "resourceName2"), getResourcePath(mockSubID, "resourceName3"), getResourcePath(mockSubID, "resourceName4"), getResourcePath(mockSubID, "resourceName5"), getResourcePath(mockSubID, "resourceName6"), getResourcePath(mockSubID, "resourceName7"), getResourcePath(mockSubID, "resourceName8"), getResourcePath(mockSubID, "resourceName9"), getResourcePath(mockSubID, "resourceName10")},
+			wantEnriched:   []string{testdatabase.GetResourcePath(mockSubID, "resourceName1"), testdatabase.GetResourcePath(mockSubID, "resourceName2"), testdatabase.GetResourcePath(mockSubID, "resourceName3"), testdatabase.GetResourcePath(mockSubID, "resourceName4"), testdatabase.GetResourcePath(mockSubID, "resourceName5"), testdatabase.GetResourcePath(mockSubID, "resourceName6"), testdatabase.GetResourcePath(mockSubID, "resourceName7"), testdatabase.GetResourcePath(mockSubID, "resourceName8"), testdatabase.GetResourcePath(mockSubID, "resourceName9"), testdatabase.GetResourcePath(mockSubID, "resourceName10")},
 			wantStatusCode: http.StatusOK,
 			wantResponse: func() *v20200430.OpenShiftClusterList {
 				var docs []*v20200430.OpenShiftCluster
 				for i := 1; i < 11; i++ {
 					docs = append(docs, &v20200430.OpenShiftCluster{
-						ID:   getResourcePath(mockSubID, fmt.Sprintf("resourceName%d", i)),
+						ID:   testdatabase.GetResourcePath(mockSubID, fmt.Sprintf("resourceName%d", i)),
 						Name: fmt.Sprintf("resourceName%d", i),
 						Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 					})
@@ -121,14 +121,14 @@ func TestListOpenShiftCluster(t *testing.T) {
 				}
 				f.AddOpenShiftClusterDocuments(docs)
 			},
-			wantEnriched:   []string{getResourcePath(mockSubID, "resourceName11")},
+			wantEnriched:   []string{testdatabase.GetResourcePath(mockSubID, "resourceName11")},
 			skipToken:      base64.StdEncoding.EncodeToString([]byte("FAKE10")),
 			wantStatusCode: http.StatusOK,
 			wantResponse: func() *v20200430.OpenShiftClusterList {
 				return &v20200430.OpenShiftClusterList{
 					OpenShiftClusters: []*v20200430.OpenShiftCluster{
 						{
-							ID:   getResourcePath(mockSubID, "resourceName11"),
+							ID:   testdatabase.GetResourcePath(mockSubID, "resourceName11"),
 							Name: "resourceName11",
 							Type: "Microsoft.RedHatOpenShift/openShiftClusters",
 						},

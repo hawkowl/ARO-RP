@@ -40,7 +40,7 @@ func TestGetAsyncOperationsStatus(t *testing.T) {
 			fixture: func(f *testdatabase.Fixture) {
 				f.AddAsyncOperationDocument(&api.AsyncOperationDocument{
 					ID:                  mockOpID,
-					OpenShiftClusterKey: strings.ToLower(getResourcePath(mockSubID, "resource1")),
+					OpenShiftClusterKey: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resource1")),
 					AsyncOperation: &api.AsyncOperation{
 						ID:                       "fakeoppath",
 						Name:                     mockOpID,
@@ -73,7 +73,7 @@ func TestGetAsyncOperationsStatus(t *testing.T) {
 			fixture: func(f *testdatabase.Fixture) {
 				f.AddAsyncOperationDocument(&api.AsyncOperationDocument{
 					ID:                  mockOpID,
-					OpenShiftClusterKey: strings.ToLower(getResourcePath(mockSubID, "resource1")),
+					OpenShiftClusterKey: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resource1")),
 					AsyncOperation: &api.AsyncOperation{
 						ID:                       "fakeoppath",
 						Name:                     mockOpID,
@@ -89,7 +89,7 @@ func TestGetAsyncOperationsStatus(t *testing.T) {
 				})
 
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key:              strings.ToLower(getResourcePath(mockSubID, "resource1")),
+					Key:              strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resource1")),
 					AsyncOperationID: mockOpID,
 				})
 			},
@@ -111,7 +111,7 @@ func TestGetAsyncOperationsStatus(t *testing.T) {
 			fixture: func(f *testdatabase.Fixture) {
 				f.AddAsyncOperationDocument(&api.AsyncOperationDocument{
 					ID:                  mockOpID,
-					OpenShiftClusterKey: strings.ToLower(getResourcePath(mockSubID, "resource1")),
+					OpenShiftClusterKey: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resource1")),
 					AsyncOperation: &api.AsyncOperation{
 						ID:                       "fakeoppath",
 						Name:                     mockOpID,

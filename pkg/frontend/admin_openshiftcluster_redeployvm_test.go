@@ -43,12 +43,12 @@ func TestAdminRedeployVM(t *testing.T) {
 		{
 			name:       "basic coverage",
 			vmName:     "aro-worker-australiasoutheast-7tcq7",
-			resourceID: getResourcePath(mockSubID, "resourceName"),
+			resourceID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 			fixture: func(f *testdatabase.Fixture) {
 				f.AddOpenShiftClusterDocument(&api.OpenShiftClusterDocument{
-					Key: strings.ToLower(getResourcePath(mockSubID, "resourceName")),
+					Key: strings.ToLower(testdatabase.GetResourcePath(mockSubID, "resourceName")),
 					OpenShiftCluster: &api.OpenShiftCluster{
-						ID: getResourcePath(mockSubID, "resourceName"),
+						ID: testdatabase.GetResourcePath(mockSubID, "resourceName"),
 						Properties: api.OpenShiftClusterProperties{
 							ClusterProfile: api.ClusterProfile{
 								ResourceGroupID: fmt.Sprintf("/subscriptions/%s/resourceGroups/test-cluster", mockSubID),

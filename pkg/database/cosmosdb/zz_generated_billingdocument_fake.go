@@ -137,7 +137,7 @@ func (c *FakeBillingDocumentClient) Create(ctx context.Context, partitionkey str
 			}
 			if ourKeyOk && theirKeyOk && ourKeyStr != "" && ourKeyStr == theirKeyStr {
 				return nil, &Error{
-					StatusCode: http.StatusPreconditionFailed,
+					StatusCode: http.StatusConflict,
 					Message:    "Entity with the specified id already exists in the system",
 				}
 			}
@@ -186,6 +186,7 @@ func (c *FakeBillingDocumentClient) ListAll(context.Context, *Options) (*pkg.Bil
 		}
 		billingDocuments.BillingDocuments = append(billingDocuments.BillingDocuments, dec)
 	}
+	c.sorter(billingDocuments.BillingDocuments)
 	return billingDocuments, nil
 }
 

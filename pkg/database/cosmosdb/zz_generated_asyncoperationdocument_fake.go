@@ -137,7 +137,7 @@ func (c *FakeAsyncOperationDocumentClient) Create(ctx context.Context, partition
 			}
 			if ourKeyOk && theirKeyOk && ourKeyStr != "" && ourKeyStr == theirKeyStr {
 				return nil, &Error{
-					StatusCode: http.StatusPreconditionFailed,
+					StatusCode: http.StatusConflict,
 					Message:    "Entity with the specified id already exists in the system",
 				}
 			}
@@ -186,6 +186,7 @@ func (c *FakeAsyncOperationDocumentClient) ListAll(context.Context, *Options) (*
 		}
 		asyncOperationDocuments.AsyncOperationDocuments = append(asyncOperationDocuments.AsyncOperationDocuments, dec)
 	}
+	c.sorter(asyncOperationDocuments.AsyncOperationDocuments)
 	return asyncOperationDocuments, nil
 }
 

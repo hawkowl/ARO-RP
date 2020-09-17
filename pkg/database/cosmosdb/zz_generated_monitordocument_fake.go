@@ -137,7 +137,7 @@ func (c *FakeMonitorDocumentClient) Create(ctx context.Context, partitionkey str
 			}
 			if ourKeyOk && theirKeyOk && ourKeyStr != "" && ourKeyStr == theirKeyStr {
 				return nil, &Error{
-					StatusCode: http.StatusPreconditionFailed,
+					StatusCode: http.StatusConflict,
 					Message:    "Entity with the specified id already exists in the system",
 				}
 			}
@@ -186,6 +186,7 @@ func (c *FakeMonitorDocumentClient) ListAll(context.Context, *Options) (*pkg.Mon
 		}
 		monitorDocuments.MonitorDocuments = append(monitorDocuments.MonitorDocuments, dec)
 	}
+	c.sorter(monitorDocuments.MonitorDocuments)
 	return monitorDocuments, nil
 }
 

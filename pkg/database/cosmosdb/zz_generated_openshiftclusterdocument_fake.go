@@ -137,7 +137,7 @@ func (c *FakeOpenShiftClusterDocumentClient) Create(ctx context.Context, partiti
 			}
 			if ourKeyOk && theirKeyOk && ourKeyStr != "" && ourKeyStr == theirKeyStr {
 				return nil, &Error{
-					StatusCode: http.StatusPreconditionFailed,
+					StatusCode: http.StatusConflict,
 					Message:    "Entity with the specified id already exists in the system",
 				}
 			}
@@ -186,6 +186,7 @@ func (c *FakeOpenShiftClusterDocumentClient) ListAll(context.Context, *Options) 
 		}
 		openShiftClusterDocuments.OpenShiftClusterDocuments = append(openShiftClusterDocuments.OpenShiftClusterDocuments, dec)
 	}
+	c.sorter(openShiftClusterDocuments.OpenShiftClusterDocuments)
 	return openShiftClusterDocuments, nil
 }
 

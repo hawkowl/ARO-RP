@@ -137,7 +137,7 @@ func (c *FakeSubscriptionDocumentClient) Create(ctx context.Context, partitionke
 			}
 			if ourKeyOk && theirKeyOk && ourKeyStr != "" && ourKeyStr == theirKeyStr {
 				return nil, &Error{
-					StatusCode: http.StatusPreconditionFailed,
+					StatusCode: http.StatusConflict,
 					Message:    "Entity with the specified id already exists in the system",
 				}
 			}
@@ -186,6 +186,7 @@ func (c *FakeSubscriptionDocumentClient) ListAll(context.Context, *Options) (*pk
 		}
 		subscriptionDocuments.SubscriptionDocuments = append(subscriptionDocuments.SubscriptionDocuments, dec)
 	}
+	c.sorter(subscriptionDocuments.SubscriptionDocuments)
 	return subscriptionDocuments, nil
 }
 

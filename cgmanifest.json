@@ -328,6 +328,15 @@
             "component": {
                 "type": "git",
                 "git": {
+                    "commitHash": "a1ddee917217bbd0691affdca9c88d24d3f5c27d",
+                    "repositoryUrl": "https://github.com/fvbommel/sortorder/"
+                }
+            }
+        },
+        {
+            "component": {
+                "type": "git",
+                "git": {
                     "commitHash": "0ca9ea5df5451ffdf184b4428c902747c2c11cd7",
                     "repositoryUrl": "https://github.com/ghodss/yaml/"
                 }

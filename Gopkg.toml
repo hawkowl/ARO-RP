@@ -106,6 +106,10 @@ required = [
   name = "golang.org/x/crypto"
   branch = "master"
 
+[[constraint]]
+  name = "github.com/go-test/deep"
+  version = "1.0.7"
+
 [[override]]
   branch = "release-4.4"
   name = "github.com/metal3-io/baremetal-operator"
@@ -135,6 +139,12 @@ required = [
 [[override]]
   name = "gopkg.in/fsnotify.v1"
   source = "https://github.com/fsnotify/fsnotify.git"
+
+# XXX: to prevent CI failing
+[[override]]
+  name = "github.com/jim-minter/go-cosmosdb"
+  source = "https://github.com/hawkowl/go-cosmosdb.git"
+  branch = "hawkowl/test"
 
 [prune]
   go-tests = true
@@ -167,6 +177,10 @@ required = [
 
   [[prune.project]]
     name = "golang.org/x/xerrors"
+    non-go = true
+
+  [[prune.project]]
+    name = "github.com/fvbommel/sortorder"
     non-go = true
 
   [[prune.project]]

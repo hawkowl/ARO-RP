@@ -130,6 +130,16 @@ func fakeOpenShiftClustersRenewLeaseTrigger(ctx context.Context, doc *api.OpenSh
 	return nil
 }
 
+func openShiftClusterConflictChecker(one *api.OpenShiftClusterDocument, two *api.OpenShiftClusterDocument) bool {
+	if one.ClusterResourceGroupIDKey != "" && two.ClusterResourceGroupIDKey != "" && one.ClusterResourceGroupIDKey == two.ClusterResourceGroupIDKey {
+		return true
+	}
+	if one.ClientIDKey != "" && two.ClientIDKey != "" && one.ClientIDKey == two.ClientIDKey {
+		return true
+	}
+	return false
+}
+
 func injectOpenShiftClusters(c *cosmosdb.FakeOpenShiftClusterDocumentClient) {
 	c.InjectQuery(database.OpenShiftClustersDequeueQuery, fakeOpenShiftClustersDequeueQuery)
 	c.InjectQuery(database.OpenShiftClustersQueueLengthQuery, fakeOpenShiftClustersQueueLengthQuery)
@@ -141,6 +151,7 @@ func injectOpenShiftClusters(c *cosmosdb.FakeOpenShiftClusterDocumentClient) {
 	c.InjectTrigger("renewLease", fakeOpenShiftClustersRenewLeaseTrigger)
 
 	c.UseSorter(func(in []*api.OpenShiftClusterDocument) { sort.Sort(ByKey(in)) })
+	c.UseDocumentConflictChecker(openShiftClusterConflictChecker)
 }
 
 // fakeOpenShiftClustersQueueLengthIterator is a RawIterator that will produce a

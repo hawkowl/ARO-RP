@@ -53,10 +53,10 @@ func NewDatabase(ctx context.Context, log *logrus.Entry) (*database.Database, *F
 	h := database.NewJSONHandle(cipher)
 
 	coll := &collectionClient{}
-	osc := cosmosdb.NewFakeOpenShiftClusterDocumentClient(h, []string{"key", "clusterResourceGroupIdKey", "clientIdKey"})
-	sub := cosmosdb.NewFakeSubscriptionDocumentClient(h, []string{"id"})
-	bil := cosmosdb.NewFakeBillingDocumentClient(h, []string{"id"})
-	asy := cosmosdb.NewFakeAsyncOperationDocumentClient(h, []string{"id"})
+	osc := cosmosdb.NewFakeOpenShiftClusterDocumentClient(h)
+	sub := cosmosdb.NewFakeSubscriptionDocumentClient(h)
+	bil := cosmosdb.NewFakeBillingDocumentClient(h)
+	asy := cosmosdb.NewFakeAsyncOperationDocumentClient(h)
 
 	injectOpenShiftClusters(osc)
 	injectSubscriptions(sub)

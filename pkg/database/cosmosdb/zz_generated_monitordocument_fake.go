@@ -3,11 +3,10 @@
 package cosmosdb
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sync"
 
 	"github.com/ugorji/go/codec"
@@ -15,20 +14,20 @@ import (
 	pkg "github.com/Azure/ARO-RP/pkg/api"
 )
 
-type FakeMonitorDocumentTrigger func(context.Context, *pkg.MonitorDocument) error
-type FakeMonitorDocumentQuery func(MonitorDocumentClient, *Query, *Options) MonitorDocumentRawIterator
+type fakeMonitorDocumentTrigger func(context.Context, *pkg.MonitorDocument) error
+type fakeMonitorDocumentQuery func(MonitorDocumentClient, *Query, *Options) MonitorDocumentRawIterator
 
 var _ MonitorDocumentClient = &FakeMonitorDocumentClient{}
 
-func NewFakeMonitorDocumentClient(h *codec.JsonHandle, uniqueKeys []string) *FakeMonitorDocumentClient {
+func NewFakeMonitorDocumentClient(h *codec.JsonHandle) *FakeMonitorDocumentClient {
 	return &FakeMonitorDocumentClient{
-		docs:       make(map[string][]byte),
-		triggers:   make(map[string]FakeMonitorDocumentTrigger),
-		queries:    make(map[string]FakeMonitorDocumentQuery),
-		uniqueKeys: uniqueKeys,
-		jsonHandle: h,
-		lock:       &sync.RWMutex{},
-		sorter:     func(in []*pkg.MonitorDocument) {},
+		docs:              make(map[string][]byte),
+		triggers:          make(map[string]fakeMonitorDocumentTrigger),
+		queries:           make(map[string]fakeMonitorDocumentQuery),
+		jsonHandle:        h,
+		lock:              &sync.RWMutex{},
+		sorter:            func(in []*pkg.MonitorDocument) {},
+		checkDocsConflict: func(*pkg.MonitorDocument, *pkg.MonitorDocument) bool { return false },
 	}
 }
 
@@ -36,46 +35,36 @@ type FakeMonitorDocumentClient struct {
 	docs       map[string][]byte
 	jsonHandle *codec.JsonHandle
 	lock       *sync.RWMutex
-	triggers   map[string]FakeMonitorDocumentTrigger
-	queries    map[string]FakeMonitorDocumentQuery
-	uniqueKeys []string
+	triggers   map[string]fakeMonitorDocumentTrigger
+	queries    map[string]fakeMonitorDocumentQuery
 	sorter     func([]*pkg.MonitorDocument)
+
+	// returns true if documents conflict
+	checkDocsConflict func(*pkg.MonitorDocument, *pkg.MonitorDocument) bool
 
 	// unavailable, if not nil, is an error to throw when attempting to
 	// communicate with this Client
 	unavailable error
 }
 
-func decodeMonitorDocument(s []byte, handle *codec.JsonHandle) (*pkg.MonitorDocument, error) {
+func (c *FakeMonitorDocumentClient) decodeMonitorDocument(s []byte) (*pkg.MonitorDocument, error) {
 	res := &pkg.MonitorDocument{}
-	err := codec.NewDecoder(bytes.NewBuffer(s), handle).Decode(&res)
+	err := codec.NewDecoderBytes(s, c.jsonHandle).Decode(&res)
 	return res, err
 }
 
-func decodeMonitorDocumentToMap(s []byte, handle *codec.JsonHandle) (map[interface{}]interface{}, error) {
-	var res interface{}
-	err := codec.NewDecoder(bytes.NewBuffer(s), handle).Decode(&res)
+func (c *FakeMonitorDocumentClient) encodeMonitorDocument(doc *pkg.MonitorDocument) ([]byte, error) {
+	res := make([]byte, 0)
+	err := codec.NewEncoderBytes(&res, c.jsonHandle).Encode(doc)
 	if err != nil {
 		return nil, err
 	}
-	ret, ok := res.(map[interface{}]interface{})
-	if !ok {
-		return nil, errors.New("Could not coerce")
-	}
-	return ret, err
-}
-
-func encodeMonitorDocument(doc *pkg.MonitorDocument, handle *codec.JsonHandle) (res []byte, err error) {
-	buf := &bytes.Buffer{}
-	err = codec.NewEncoder(buf, handle).Encode(doc)
-	if err != nil {
-		return
-	}
-	res = buf.Bytes()
-	return
+	return res, err
 }
 
 func (c *FakeMonitorDocumentClient) MakeUnavailable(err error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	c.unavailable = err
 }
 
@@ -83,22 +72,32 @@ func (c *FakeMonitorDocumentClient) UseSorter(sorter func([]*pkg.MonitorDocument
 	c.sorter = sorter
 }
 
+func (c *FakeMonitorDocumentClient) UseDocumentConflictChecker(checker func(*pkg.MonitorDocument, *pkg.MonitorDocument) bool) {
+	c.checkDocsConflict = checker
+}
+
+func (c *FakeMonitorDocumentClient) InjectTrigger(trigger string, impl fakeMonitorDocumentTrigger) {
+	c.triggers[trigger] = impl
+}
+
+func (c *FakeMonitorDocumentClient) InjectQuery(query string, impl fakeMonitorDocumentQuery) {
+	c.queries[query] = impl
+}
+
 func (c *FakeMonitorDocumentClient) encodeAndCopy(doc *pkg.MonitorDocument) (*pkg.MonitorDocument, []byte, error) {
-	encoded, err := encodeMonitorDocument(doc, c.jsonHandle)
+	encoded, err := c.encodeMonitorDocument(doc)
 	if err != nil {
 		return nil, nil, err
 	}
-	res, err := decodeMonitorDocument(encoded, c.jsonHandle)
+	res, err := c.decodeMonitorDocument(encoded)
 	if err != nil {
 		return nil, nil, err
 	}
 	return res, encoded, err
 }
 
-func (c *FakeMonitorDocumentClient) Create(ctx context.Context, partitionkey string, doc *pkg.MonitorDocument, options *Options) (*pkg.MonitorDocument, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
+func (c *FakeMonitorDocumentClient) apply(ctx context.Context, partitionkey string, doc *pkg.MonitorDocument, options *Options, isNew bool) (*pkg.MonitorDocument, error) {
+	var docExists bool
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -113,29 +112,27 @@ func (c *FakeMonitorDocumentClient) Create(ctx context.Context, partitionkey str
 	if err != nil {
 		return nil, err
 	}
-	docAsMap, err := decodeMonitorDocumentToMap(enc, c.jsonHandle)
-	if err != nil {
-		return nil, err
-	}
 
 	for _, ext := range c.docs {
-		extDecoded, err := decodeMonitorDocumentToMap(ext, c.jsonHandle)
+		dec, err := c.decodeMonitorDocument(ext)
 		if err != nil {
 			return nil, err
 		}
 
-		for _, key := range c.uniqueKeys {
-			var ourKeyStr string
-			var theirKeyStr string
-			ourKey, ourKeyOk := docAsMap[key]
-			if ourKeyOk {
-				ourKeyStr, ourKeyOk = ourKey.(string)
+		if dec.ID == res.ID {
+			// If the document exists in the database, we want to error out in a
+			// create but mark the document as extant so it can be replaced if
+			// it is an update
+			if isNew {
+				return nil, &Error{
+					StatusCode: http.StatusConflict,
+					Message:    "Entity with the specified id already exists in the system",
+				}
+			} else {
+				docExists = true
 			}
-			theirKey, theirKeyOk := extDecoded[key]
-			if theirKeyOk {
-				theirKeyStr, theirKeyOk = theirKey.(string)
-			}
-			if ourKeyOk && theirKeyOk && ourKeyStr != "" && ourKeyStr == theirKeyStr {
+		} else {
+			if c.checkDocsConflict(dec, res) {
 				return nil, &Error{
 					StatusCode: http.StatusConflict,
 					Message:    "Entity with the specified id already exists in the system",
@@ -144,8 +141,26 @@ func (c *FakeMonitorDocumentClient) Create(ctx context.Context, partitionkey str
 		}
 	}
 
+	if !isNew && !docExists {
+		return nil, &Error{StatusCode: http.StatusNotFound}
+	}
+
 	c.docs[doc.ID] = enc
 	return res, nil
+}
+
+func (c *FakeMonitorDocumentClient) Create(ctx context.Context, partitionkey string, doc *pkg.MonitorDocument, options *Options) (*pkg.MonitorDocument, error) {
+	if c.unavailable != nil {
+		return nil, c.unavailable
+	}
+	return c.apply(ctx, partitionkey, doc, options, true)
+}
+
+func (c *FakeMonitorDocumentClient) Replace(ctx context.Context, partitionkey string, doc *pkg.MonitorDocument, options *Options) (*pkg.MonitorDocument, error) {
+	if c.unavailable != nil {
+		return nil, c.unavailable
+	}
+	return c.apply(ctx, partitionkey, doc, options, false)
 }
 
 func (c *FakeMonitorDocumentClient) List(*Options) MonitorDocumentIterator {
@@ -157,7 +172,7 @@ func (c *FakeMonitorDocumentClient) List(*Options) MonitorDocumentIterator {
 
 	docs := make([]*pkg.MonitorDocument, 0, len(c.docs))
 	for _, d := range c.docs {
-		r, err := decodeMonitorDocument(d, c.jsonHandle)
+		r, err := c.decodeMonitorDocument(d)
 		if err != nil {
 			return NewFakeMonitorDocumentClientErroringRawIterator(err)
 		}
@@ -167,26 +182,15 @@ func (c *FakeMonitorDocumentClient) List(*Options) MonitorDocumentIterator {
 	return NewFakeMonitorDocumentClientRawIterator(docs, 0)
 }
 
-func (c *FakeMonitorDocumentClient) ListAll(context.Context, *Options) (*pkg.MonitorDocuments, error) {
+func (c *FakeMonitorDocumentClient) ListAll(ctx context.Context, opts *Options) (*pkg.MonitorDocuments, error) {
 	if c.unavailable != nil {
 		return nil, c.unavailable
 	}
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-
-	monitorDocuments := &pkg.MonitorDocuments{
-		Count:            len(c.docs),
-		MonitorDocuments: make([]*pkg.MonitorDocument, 0, len(c.docs)),
+	iter := c.List(opts)
+	monitorDocuments, err := iter.Next(ctx, -1)
+	if err != nil {
+		return nil, err
 	}
-
-	for _, d := range c.docs {
-		dec, err := decodeMonitorDocument(d, c.jsonHandle)
-		if err != nil {
-			return nil, err
-		}
-		monitorDocuments.MonitorDocuments = append(monitorDocuments.MonitorDocuments, dec)
-	}
-	c.sorter(monitorDocuments.MonitorDocuments)
 	return monitorDocuments, nil
 }
 
@@ -201,34 +205,7 @@ func (c *FakeMonitorDocumentClient) Get(ctx context.Context, partitionkey string
 	if !ext {
 		return nil, &Error{StatusCode: http.StatusNotFound}
 	}
-	return decodeMonitorDocument(out, c.jsonHandle)
-}
-
-func (c *FakeMonitorDocumentClient) Replace(ctx context.Context, partitionkey string, doc *pkg.MonitorDocument, options *Options) (*pkg.MonitorDocument, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	_, exists := c.docs[doc.ID]
-	if !exists {
-		return nil, &Error{StatusCode: http.StatusNotFound}
-	}
-
-	if options != nil {
-		err := c.processPreTriggers(ctx, doc, options)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	res, enc, err := c.encodeAndCopy(doc)
-	if err != nil {
-		return nil, err
-	}
-	c.docs[doc.ID] = enc
-	return res, nil
+	return c.decodeMonitorDocument(out)
 }
 
 func (c *FakeMonitorDocumentClient) Delete(ctx context.Context, partitionKey string, doc *pkg.MonitorDocument, options *Options) error {
@@ -285,29 +262,8 @@ func (c *FakeMonitorDocumentClient) Query(name string, query *Query, options *Op
 }
 
 func (c *FakeMonitorDocumentClient) QueryAll(ctx context.Context, partitionkey string, query *Query, options *Options) (*pkg.MonitorDocuments, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-
-	quer, ok := c.queries[query.Query]
-	if ok {
-		items := quer(c, query, options)
-		res := &pkg.MonitorDocuments{}
-		err := items.NextRaw(ctx, -1, res)
-		return res, err
-	} else {
-		return nil, ErrNotImplemented
-	}
-}
-
-func (c *FakeMonitorDocumentClient) InjectTrigger(trigger string, impl FakeMonitorDocumentTrigger) {
-	c.triggers[trigger] = impl
-}
-
-func (c *FakeMonitorDocumentClient) InjectQuery(query string, impl FakeMonitorDocumentQuery) {
-	c.queries[query] = impl
+	iter := c.Query("", query, options)
+	return iter.Next(ctx, -1)
 }
 
 // NewFakeMonitorDocumentClientRawIterator creates a RawIterator that will produce only
@@ -319,20 +275,16 @@ func NewFakeMonitorDocumentClientRawIterator(docs []*pkg.MonitorDocument, contin
 type fakeMonitorDocumentClientRawIterator struct {
 	docs         []*pkg.MonitorDocument
 	continuation int
+	done         bool
 }
 
-func (i *fakeMonitorDocumentClientRawIterator) Next(ctx context.Context, maxItemCount int) (*pkg.MonitorDocuments, error) {
-	out := &pkg.MonitorDocuments{}
-	err := i.NextRaw(ctx, maxItemCount, out)
-
-	if out.Count == 0 {
-		return nil, nil
-	}
-	return out, err
+func (i *fakeMonitorDocumentClientRawIterator) Next(ctx context.Context, maxItemCount int) (out *pkg.MonitorDocuments, err error) {
+	err = i.NextRaw(ctx, maxItemCount, &out)
+	return
 }
 
 func (i *fakeMonitorDocumentClientRawIterator) NextRaw(ctx context.Context, maxItemCount int, out interface{}) error {
-	if i.continuation >= len(i.docs) {
+	if i.done {
 		return nil
 	}
 
@@ -340,6 +292,7 @@ func (i *fakeMonitorDocumentClientRawIterator) NextRaw(ctx context.Context, maxI
 	if maxItemCount == -1 {
 		docs = i.docs[i.continuation:]
 		i.continuation = len(i.docs)
+		i.done = true
 	} else {
 		max := i.continuation + maxItemCount
 		if max > len(i.docs) {
@@ -347,11 +300,14 @@ func (i *fakeMonitorDocumentClientRawIterator) NextRaw(ctx context.Context, maxI
 		}
 		docs = i.docs[i.continuation:max]
 		i.continuation += max
+		i.done = i.Continuation() == ""
 	}
 
-	d := out.(*pkg.MonitorDocuments)
+	y := reflect.ValueOf(out)
+	d := &pkg.MonitorDocuments{}
 	d.MonitorDocuments = docs
 	d.Count = len(d.MonitorDocuments)
+	y.Elem().Set(reflect.ValueOf(d))
 	return nil
 }
 

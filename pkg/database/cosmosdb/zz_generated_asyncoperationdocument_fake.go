@@ -3,11 +3,10 @@
 package cosmosdb
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sync"
 
 	"github.com/ugorji/go/codec"
@@ -15,20 +14,20 @@ import (
 	pkg "github.com/Azure/ARO-RP/pkg/api"
 )
 
-type FakeAsyncOperationDocumentTrigger func(context.Context, *pkg.AsyncOperationDocument) error
-type FakeAsyncOperationDocumentQuery func(AsyncOperationDocumentClient, *Query, *Options) AsyncOperationDocumentRawIterator
+type fakeAsyncOperationDocumentTrigger func(context.Context, *pkg.AsyncOperationDocument) error
+type fakeAsyncOperationDocumentQuery func(AsyncOperationDocumentClient, *Query, *Options) AsyncOperationDocumentRawIterator
 
 var _ AsyncOperationDocumentClient = &FakeAsyncOperationDocumentClient{}
 
-func NewFakeAsyncOperationDocumentClient(h *codec.JsonHandle, uniqueKeys []string) *FakeAsyncOperationDocumentClient {
+func NewFakeAsyncOperationDocumentClient(h *codec.JsonHandle) *FakeAsyncOperationDocumentClient {
 	return &FakeAsyncOperationDocumentClient{
-		docs:       make(map[string][]byte),
-		triggers:   make(map[string]FakeAsyncOperationDocumentTrigger),
-		queries:    make(map[string]FakeAsyncOperationDocumentQuery),
-		uniqueKeys: uniqueKeys,
-		jsonHandle: h,
-		lock:       &sync.RWMutex{},
-		sorter:     func(in []*pkg.AsyncOperationDocument) {},
+		docs:              make(map[string][]byte),
+		triggers:          make(map[string]fakeAsyncOperationDocumentTrigger),
+		queries:           make(map[string]fakeAsyncOperationDocumentQuery),
+		jsonHandle:        h,
+		lock:              &sync.RWMutex{},
+		sorter:            func(in []*pkg.AsyncOperationDocument) {},
+		checkDocsConflict: func(*pkg.AsyncOperationDocument, *pkg.AsyncOperationDocument) bool { return false },
 	}
 }
 
@@ -36,46 +35,36 @@ type FakeAsyncOperationDocumentClient struct {
 	docs       map[string][]byte
 	jsonHandle *codec.JsonHandle
 	lock       *sync.RWMutex
-	triggers   map[string]FakeAsyncOperationDocumentTrigger
-	queries    map[string]FakeAsyncOperationDocumentQuery
-	uniqueKeys []string
+	triggers   map[string]fakeAsyncOperationDocumentTrigger
+	queries    map[string]fakeAsyncOperationDocumentQuery
 	sorter     func([]*pkg.AsyncOperationDocument)
+
+	// returns true if documents conflict
+	checkDocsConflict func(*pkg.AsyncOperationDocument, *pkg.AsyncOperationDocument) bool
 
 	// unavailable, if not nil, is an error to throw when attempting to
 	// communicate with this Client
 	unavailable error
 }
 
-func decodeAsyncOperationDocument(s []byte, handle *codec.JsonHandle) (*pkg.AsyncOperationDocument, error) {
+func (c *FakeAsyncOperationDocumentClient) decodeAsyncOperationDocument(s []byte) (*pkg.AsyncOperationDocument, error) {
 	res := &pkg.AsyncOperationDocument{}
-	err := codec.NewDecoder(bytes.NewBuffer(s), handle).Decode(&res)
+	err := codec.NewDecoderBytes(s, c.jsonHandle).Decode(&res)
 	return res, err
 }
 
-func decodeAsyncOperationDocumentToMap(s []byte, handle *codec.JsonHandle) (map[interface{}]interface{}, error) {
-	var res interface{}
-	err := codec.NewDecoder(bytes.NewBuffer(s), handle).Decode(&res)
+func (c *FakeAsyncOperationDocumentClient) encodeAsyncOperationDocument(doc *pkg.AsyncOperationDocument) ([]byte, error) {
+	res := make([]byte, 0)
+	err := codec.NewEncoderBytes(&res, c.jsonHandle).Encode(doc)
 	if err != nil {
 		return nil, err
 	}
-	ret, ok := res.(map[interface{}]interface{})
-	if !ok {
-		return nil, errors.New("Could not coerce")
-	}
-	return ret, err
-}
-
-func encodeAsyncOperationDocument(doc *pkg.AsyncOperationDocument, handle *codec.JsonHandle) (res []byte, err error) {
-	buf := &bytes.Buffer{}
-	err = codec.NewEncoder(buf, handle).Encode(doc)
-	if err != nil {
-		return
-	}
-	res = buf.Bytes()
-	return
+	return res, err
 }
 
 func (c *FakeAsyncOperationDocumentClient) MakeUnavailable(err error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	c.unavailable = err
 }
 
@@ -83,22 +72,32 @@ func (c *FakeAsyncOperationDocumentClient) UseSorter(sorter func([]*pkg.AsyncOpe
 	c.sorter = sorter
 }
 
+func (c *FakeAsyncOperationDocumentClient) UseDocumentConflictChecker(checker func(*pkg.AsyncOperationDocument, *pkg.AsyncOperationDocument) bool) {
+	c.checkDocsConflict = checker
+}
+
+func (c *FakeAsyncOperationDocumentClient) InjectTrigger(trigger string, impl fakeAsyncOperationDocumentTrigger) {
+	c.triggers[trigger] = impl
+}
+
+func (c *FakeAsyncOperationDocumentClient) InjectQuery(query string, impl fakeAsyncOperationDocumentQuery) {
+	c.queries[query] = impl
+}
+
 func (c *FakeAsyncOperationDocumentClient) encodeAndCopy(doc *pkg.AsyncOperationDocument) (*pkg.AsyncOperationDocument, []byte, error) {
-	encoded, err := encodeAsyncOperationDocument(doc, c.jsonHandle)
+	encoded, err := c.encodeAsyncOperationDocument(doc)
 	if err != nil {
 		return nil, nil, err
 	}
-	res, err := decodeAsyncOperationDocument(encoded, c.jsonHandle)
+	res, err := c.decodeAsyncOperationDocument(encoded)
 	if err != nil {
 		return nil, nil, err
 	}
 	return res, encoded, err
 }
 
-func (c *FakeAsyncOperationDocumentClient) Create(ctx context.Context, partitionkey string, doc *pkg.AsyncOperationDocument, options *Options) (*pkg.AsyncOperationDocument, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
+func (c *FakeAsyncOperationDocumentClient) apply(ctx context.Context, partitionkey string, doc *pkg.AsyncOperationDocument, options *Options, isNew bool) (*pkg.AsyncOperationDocument, error) {
+	var docExists bool
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -113,29 +112,27 @@ func (c *FakeAsyncOperationDocumentClient) Create(ctx context.Context, partition
 	if err != nil {
 		return nil, err
 	}
-	docAsMap, err := decodeAsyncOperationDocumentToMap(enc, c.jsonHandle)
-	if err != nil {
-		return nil, err
-	}
 
 	for _, ext := range c.docs {
-		extDecoded, err := decodeAsyncOperationDocumentToMap(ext, c.jsonHandle)
+		dec, err := c.decodeAsyncOperationDocument(ext)
 		if err != nil {
 			return nil, err
 		}
 
-		for _, key := range c.uniqueKeys {
-			var ourKeyStr string
-			var theirKeyStr string
-			ourKey, ourKeyOk := docAsMap[key]
-			if ourKeyOk {
-				ourKeyStr, ourKeyOk = ourKey.(string)
+		if dec.ID == res.ID {
+			// If the document exists in the database, we want to error out in a
+			// create but mark the document as extant so it can be replaced if
+			// it is an update
+			if isNew {
+				return nil, &Error{
+					StatusCode: http.StatusConflict,
+					Message:    "Entity with the specified id already exists in the system",
+				}
+			} else {
+				docExists = true
 			}
-			theirKey, theirKeyOk := extDecoded[key]
-			if theirKeyOk {
-				theirKeyStr, theirKeyOk = theirKey.(string)
-			}
-			if ourKeyOk && theirKeyOk && ourKeyStr != "" && ourKeyStr == theirKeyStr {
+		} else {
+			if c.checkDocsConflict(dec, res) {
 				return nil, &Error{
 					StatusCode: http.StatusConflict,
 					Message:    "Entity with the specified id already exists in the system",
@@ -144,8 +141,26 @@ func (c *FakeAsyncOperationDocumentClient) Create(ctx context.Context, partition
 		}
 	}
 
+	if !isNew && !docExists {
+		return nil, &Error{StatusCode: http.StatusNotFound}
+	}
+
 	c.docs[doc.ID] = enc
 	return res, nil
+}
+
+func (c *FakeAsyncOperationDocumentClient) Create(ctx context.Context, partitionkey string, doc *pkg.AsyncOperationDocument, options *Options) (*pkg.AsyncOperationDocument, error) {
+	if c.unavailable != nil {
+		return nil, c.unavailable
+	}
+	return c.apply(ctx, partitionkey, doc, options, true)
+}
+
+func (c *FakeAsyncOperationDocumentClient) Replace(ctx context.Context, partitionkey string, doc *pkg.AsyncOperationDocument, options *Options) (*pkg.AsyncOperationDocument, error) {
+	if c.unavailable != nil {
+		return nil, c.unavailable
+	}
+	return c.apply(ctx, partitionkey, doc, options, false)
 }
 
 func (c *FakeAsyncOperationDocumentClient) List(*Options) AsyncOperationDocumentIterator {
@@ -157,7 +172,7 @@ func (c *FakeAsyncOperationDocumentClient) List(*Options) AsyncOperationDocument
 
 	docs := make([]*pkg.AsyncOperationDocument, 0, len(c.docs))
 	for _, d := range c.docs {
-		r, err := decodeAsyncOperationDocument(d, c.jsonHandle)
+		r, err := c.decodeAsyncOperationDocument(d)
 		if err != nil {
 			return NewFakeAsyncOperationDocumentClientErroringRawIterator(err)
 		}
@@ -167,26 +182,15 @@ func (c *FakeAsyncOperationDocumentClient) List(*Options) AsyncOperationDocument
 	return NewFakeAsyncOperationDocumentClientRawIterator(docs, 0)
 }
 
-func (c *FakeAsyncOperationDocumentClient) ListAll(context.Context, *Options) (*pkg.AsyncOperationDocuments, error) {
+func (c *FakeAsyncOperationDocumentClient) ListAll(ctx context.Context, opts *Options) (*pkg.AsyncOperationDocuments, error) {
 	if c.unavailable != nil {
 		return nil, c.unavailable
 	}
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-
-	asyncOperationDocuments := &pkg.AsyncOperationDocuments{
-		Count:                   len(c.docs),
-		AsyncOperationDocuments: make([]*pkg.AsyncOperationDocument, 0, len(c.docs)),
+	iter := c.List(opts)
+	asyncOperationDocuments, err := iter.Next(ctx, -1)
+	if err != nil {
+		return nil, err
 	}
-
-	for _, d := range c.docs {
-		dec, err := decodeAsyncOperationDocument(d, c.jsonHandle)
-		if err != nil {
-			return nil, err
-		}
-		asyncOperationDocuments.AsyncOperationDocuments = append(asyncOperationDocuments.AsyncOperationDocuments, dec)
-	}
-	c.sorter(asyncOperationDocuments.AsyncOperationDocuments)
 	return asyncOperationDocuments, nil
 }
 
@@ -201,34 +205,7 @@ func (c *FakeAsyncOperationDocumentClient) Get(ctx context.Context, partitionkey
 	if !ext {
 		return nil, &Error{StatusCode: http.StatusNotFound}
 	}
-	return decodeAsyncOperationDocument(out, c.jsonHandle)
-}
-
-func (c *FakeAsyncOperationDocumentClient) Replace(ctx context.Context, partitionkey string, doc *pkg.AsyncOperationDocument, options *Options) (*pkg.AsyncOperationDocument, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	_, exists := c.docs[doc.ID]
-	if !exists {
-		return nil, &Error{StatusCode: http.StatusNotFound}
-	}
-
-	if options != nil {
-		err := c.processPreTriggers(ctx, doc, options)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	res, enc, err := c.encodeAndCopy(doc)
-	if err != nil {
-		return nil, err
-	}
-	c.docs[doc.ID] = enc
-	return res, nil
+	return c.decodeAsyncOperationDocument(out)
 }
 
 func (c *FakeAsyncOperationDocumentClient) Delete(ctx context.Context, partitionKey string, doc *pkg.AsyncOperationDocument, options *Options) error {
@@ -285,29 +262,8 @@ func (c *FakeAsyncOperationDocumentClient) Query(name string, query *Query, opti
 }
 
 func (c *FakeAsyncOperationDocumentClient) QueryAll(ctx context.Context, partitionkey string, query *Query, options *Options) (*pkg.AsyncOperationDocuments, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-
-	quer, ok := c.queries[query.Query]
-	if ok {
-		items := quer(c, query, options)
-		res := &pkg.AsyncOperationDocuments{}
-		err := items.NextRaw(ctx, -1, res)
-		return res, err
-	} else {
-		return nil, ErrNotImplemented
-	}
-}
-
-func (c *FakeAsyncOperationDocumentClient) InjectTrigger(trigger string, impl FakeAsyncOperationDocumentTrigger) {
-	c.triggers[trigger] = impl
-}
-
-func (c *FakeAsyncOperationDocumentClient) InjectQuery(query string, impl FakeAsyncOperationDocumentQuery) {
-	c.queries[query] = impl
+	iter := c.Query("", query, options)
+	return iter.Next(ctx, -1)
 }
 
 // NewFakeAsyncOperationDocumentClientRawIterator creates a RawIterator that will produce only
@@ -319,20 +275,16 @@ func NewFakeAsyncOperationDocumentClientRawIterator(docs []*pkg.AsyncOperationDo
 type fakeAsyncOperationDocumentClientRawIterator struct {
 	docs         []*pkg.AsyncOperationDocument
 	continuation int
+	done         bool
 }
 
-func (i *fakeAsyncOperationDocumentClientRawIterator) Next(ctx context.Context, maxItemCount int) (*pkg.AsyncOperationDocuments, error) {
-	out := &pkg.AsyncOperationDocuments{}
-	err := i.NextRaw(ctx, maxItemCount, out)
-
-	if out.Count == 0 {
-		return nil, nil
-	}
-	return out, err
+func (i *fakeAsyncOperationDocumentClientRawIterator) Next(ctx context.Context, maxItemCount int) (out *pkg.AsyncOperationDocuments, err error) {
+	err = i.NextRaw(ctx, maxItemCount, &out)
+	return
 }
 
 func (i *fakeAsyncOperationDocumentClientRawIterator) NextRaw(ctx context.Context, maxItemCount int, out interface{}) error {
-	if i.continuation >= len(i.docs) {
+	if i.done {
 		return nil
 	}
 
@@ -340,6 +292,7 @@ func (i *fakeAsyncOperationDocumentClientRawIterator) NextRaw(ctx context.Contex
 	if maxItemCount == -1 {
 		docs = i.docs[i.continuation:]
 		i.continuation = len(i.docs)
+		i.done = true
 	} else {
 		max := i.continuation + maxItemCount
 		if max > len(i.docs) {
@@ -347,11 +300,14 @@ func (i *fakeAsyncOperationDocumentClientRawIterator) NextRaw(ctx context.Contex
 		}
 		docs = i.docs[i.continuation:max]
 		i.continuation += max
+		i.done = i.Continuation() == ""
 	}
 
-	d := out.(*pkg.AsyncOperationDocuments)
+	y := reflect.ValueOf(out)
+	d := &pkg.AsyncOperationDocuments{}
 	d.AsyncOperationDocuments = docs
 	d.Count = len(d.AsyncOperationDocuments)
+	y.Elem().Set(reflect.ValueOf(d))
 	return nil
 }
 

@@ -3,11 +3,10 @@
 package cosmosdb
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sync"
 
 	"github.com/ugorji/go/codec"
@@ -15,20 +14,20 @@ import (
 	pkg "github.com/Azure/ARO-RP/pkg/api"
 )
 
-type FakeSubscriptionDocumentTrigger func(context.Context, *pkg.SubscriptionDocument) error
-type FakeSubscriptionDocumentQuery func(SubscriptionDocumentClient, *Query, *Options) SubscriptionDocumentRawIterator
+type fakeSubscriptionDocumentTrigger func(context.Context, *pkg.SubscriptionDocument) error
+type fakeSubscriptionDocumentQuery func(SubscriptionDocumentClient, *Query, *Options) SubscriptionDocumentRawIterator
 
 var _ SubscriptionDocumentClient = &FakeSubscriptionDocumentClient{}
 
-func NewFakeSubscriptionDocumentClient(h *codec.JsonHandle, uniqueKeys []string) *FakeSubscriptionDocumentClient {
+func NewFakeSubscriptionDocumentClient(h *codec.JsonHandle) *FakeSubscriptionDocumentClient {
 	return &FakeSubscriptionDocumentClient{
-		docs:       make(map[string][]byte),
-		triggers:   make(map[string]FakeSubscriptionDocumentTrigger),
-		queries:    make(map[string]FakeSubscriptionDocumentQuery),
-		uniqueKeys: uniqueKeys,
-		jsonHandle: h,
-		lock:       &sync.RWMutex{},
-		sorter:     func(in []*pkg.SubscriptionDocument) {},
+		docs:              make(map[string][]byte),
+		triggers:          make(map[string]fakeSubscriptionDocumentTrigger),
+		queries:           make(map[string]fakeSubscriptionDocumentQuery),
+		jsonHandle:        h,
+		lock:              &sync.RWMutex{},
+		sorter:            func(in []*pkg.SubscriptionDocument) {},
+		checkDocsConflict: func(*pkg.SubscriptionDocument, *pkg.SubscriptionDocument) bool { return false },
 	}
 }
 
@@ -36,46 +35,36 @@ type FakeSubscriptionDocumentClient struct {
 	docs       map[string][]byte
 	jsonHandle *codec.JsonHandle
 	lock       *sync.RWMutex
-	triggers   map[string]FakeSubscriptionDocumentTrigger
-	queries    map[string]FakeSubscriptionDocumentQuery
-	uniqueKeys []string
+	triggers   map[string]fakeSubscriptionDocumentTrigger
+	queries    map[string]fakeSubscriptionDocumentQuery
 	sorter     func([]*pkg.SubscriptionDocument)
+
+	// returns true if documents conflict
+	checkDocsConflict func(*pkg.SubscriptionDocument, *pkg.SubscriptionDocument) bool
 
 	// unavailable, if not nil, is an error to throw when attempting to
 	// communicate with this Client
 	unavailable error
 }
 
-func decodeSubscriptionDocument(s []byte, handle *codec.JsonHandle) (*pkg.SubscriptionDocument, error) {
+func (c *FakeSubscriptionDocumentClient) decodeSubscriptionDocument(s []byte) (*pkg.SubscriptionDocument, error) {
 	res := &pkg.SubscriptionDocument{}
-	err := codec.NewDecoder(bytes.NewBuffer(s), handle).Decode(&res)
+	err := codec.NewDecoderBytes(s, c.jsonHandle).Decode(&res)
 	return res, err
 }
 
-func decodeSubscriptionDocumentToMap(s []byte, handle *codec.JsonHandle) (map[interface{}]interface{}, error) {
-	var res interface{}
-	err := codec.NewDecoder(bytes.NewBuffer(s), handle).Decode(&res)
+func (c *FakeSubscriptionDocumentClient) encodeSubscriptionDocument(doc *pkg.SubscriptionDocument) ([]byte, error) {
+	res := make([]byte, 0)
+	err := codec.NewEncoderBytes(&res, c.jsonHandle).Encode(doc)
 	if err != nil {
 		return nil, err
 	}
-	ret, ok := res.(map[interface{}]interface{})
-	if !ok {
-		return nil, errors.New("Could not coerce")
-	}
-	return ret, err
-}
-
-func encodeSubscriptionDocument(doc *pkg.SubscriptionDocument, handle *codec.JsonHandle) (res []byte, err error) {
-	buf := &bytes.Buffer{}
-	err = codec.NewEncoder(buf, handle).Encode(doc)
-	if err != nil {
-		return
-	}
-	res = buf.Bytes()
-	return
+	return res, err
 }
 
 func (c *FakeSubscriptionDocumentClient) MakeUnavailable(err error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	c.unavailable = err
 }
 
@@ -83,22 +72,32 @@ func (c *FakeSubscriptionDocumentClient) UseSorter(sorter func([]*pkg.Subscripti
 	c.sorter = sorter
 }
 
+func (c *FakeSubscriptionDocumentClient) UseDocumentConflictChecker(checker func(*pkg.SubscriptionDocument, *pkg.SubscriptionDocument) bool) {
+	c.checkDocsConflict = checker
+}
+
+func (c *FakeSubscriptionDocumentClient) InjectTrigger(trigger string, impl fakeSubscriptionDocumentTrigger) {
+	c.triggers[trigger] = impl
+}
+
+func (c *FakeSubscriptionDocumentClient) InjectQuery(query string, impl fakeSubscriptionDocumentQuery) {
+	c.queries[query] = impl
+}
+
 func (c *FakeSubscriptionDocumentClient) encodeAndCopy(doc *pkg.SubscriptionDocument) (*pkg.SubscriptionDocument, []byte, error) {
-	encoded, err := encodeSubscriptionDocument(doc, c.jsonHandle)
+	encoded, err := c.encodeSubscriptionDocument(doc)
 	if err != nil {
 		return nil, nil, err
 	}
-	res, err := decodeSubscriptionDocument(encoded, c.jsonHandle)
+	res, err := c.decodeSubscriptionDocument(encoded)
 	if err != nil {
 		return nil, nil, err
 	}
 	return res, encoded, err
 }
 
-func (c *FakeSubscriptionDocumentClient) Create(ctx context.Context, partitionkey string, doc *pkg.SubscriptionDocument, options *Options) (*pkg.SubscriptionDocument, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
+func (c *FakeSubscriptionDocumentClient) apply(ctx context.Context, partitionkey string, doc *pkg.SubscriptionDocument, options *Options, isNew bool) (*pkg.SubscriptionDocument, error) {
+	var docExists bool
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -113,29 +112,27 @@ func (c *FakeSubscriptionDocumentClient) Create(ctx context.Context, partitionke
 	if err != nil {
 		return nil, err
 	}
-	docAsMap, err := decodeSubscriptionDocumentToMap(enc, c.jsonHandle)
-	if err != nil {
-		return nil, err
-	}
 
 	for _, ext := range c.docs {
-		extDecoded, err := decodeSubscriptionDocumentToMap(ext, c.jsonHandle)
+		dec, err := c.decodeSubscriptionDocument(ext)
 		if err != nil {
 			return nil, err
 		}
 
-		for _, key := range c.uniqueKeys {
-			var ourKeyStr string
-			var theirKeyStr string
-			ourKey, ourKeyOk := docAsMap[key]
-			if ourKeyOk {
-				ourKeyStr, ourKeyOk = ourKey.(string)
+		if dec.ID == res.ID {
+			// If the document exists in the database, we want to error out in a
+			// create but mark the document as extant so it can be replaced if
+			// it is an update
+			if isNew {
+				return nil, &Error{
+					StatusCode: http.StatusConflict,
+					Message:    "Entity with the specified id already exists in the system",
+				}
+			} else {
+				docExists = true
 			}
-			theirKey, theirKeyOk := extDecoded[key]
-			if theirKeyOk {
-				theirKeyStr, theirKeyOk = theirKey.(string)
-			}
-			if ourKeyOk && theirKeyOk && ourKeyStr != "" && ourKeyStr == theirKeyStr {
+		} else {
+			if c.checkDocsConflict(dec, res) {
 				return nil, &Error{
 					StatusCode: http.StatusConflict,
 					Message:    "Entity with the specified id already exists in the system",
@@ -144,8 +141,26 @@ func (c *FakeSubscriptionDocumentClient) Create(ctx context.Context, partitionke
 		}
 	}
 
+	if !isNew && !docExists {
+		return nil, &Error{StatusCode: http.StatusNotFound}
+	}
+
 	c.docs[doc.ID] = enc
 	return res, nil
+}
+
+func (c *FakeSubscriptionDocumentClient) Create(ctx context.Context, partitionkey string, doc *pkg.SubscriptionDocument, options *Options) (*pkg.SubscriptionDocument, error) {
+	if c.unavailable != nil {
+		return nil, c.unavailable
+	}
+	return c.apply(ctx, partitionkey, doc, options, true)
+}
+
+func (c *FakeSubscriptionDocumentClient) Replace(ctx context.Context, partitionkey string, doc *pkg.SubscriptionDocument, options *Options) (*pkg.SubscriptionDocument, error) {
+	if c.unavailable != nil {
+		return nil, c.unavailable
+	}
+	return c.apply(ctx, partitionkey, doc, options, false)
 }
 
 func (c *FakeSubscriptionDocumentClient) List(*Options) SubscriptionDocumentIterator {
@@ -157,7 +172,7 @@ func (c *FakeSubscriptionDocumentClient) List(*Options) SubscriptionDocumentIter
 
 	docs := make([]*pkg.SubscriptionDocument, 0, len(c.docs))
 	for _, d := range c.docs {
-		r, err := decodeSubscriptionDocument(d, c.jsonHandle)
+		r, err := c.decodeSubscriptionDocument(d)
 		if err != nil {
 			return NewFakeSubscriptionDocumentClientErroringRawIterator(err)
 		}
@@ -167,26 +182,15 @@ func (c *FakeSubscriptionDocumentClient) List(*Options) SubscriptionDocumentIter
 	return NewFakeSubscriptionDocumentClientRawIterator(docs, 0)
 }
 
-func (c *FakeSubscriptionDocumentClient) ListAll(context.Context, *Options) (*pkg.SubscriptionDocuments, error) {
+func (c *FakeSubscriptionDocumentClient) ListAll(ctx context.Context, opts *Options) (*pkg.SubscriptionDocuments, error) {
 	if c.unavailable != nil {
 		return nil, c.unavailable
 	}
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-
-	subscriptionDocuments := &pkg.SubscriptionDocuments{
-		Count:                 len(c.docs),
-		SubscriptionDocuments: make([]*pkg.SubscriptionDocument, 0, len(c.docs)),
+	iter := c.List(opts)
+	subscriptionDocuments, err := iter.Next(ctx, -1)
+	if err != nil {
+		return nil, err
 	}
-
-	for _, d := range c.docs {
-		dec, err := decodeSubscriptionDocument(d, c.jsonHandle)
-		if err != nil {
-			return nil, err
-		}
-		subscriptionDocuments.SubscriptionDocuments = append(subscriptionDocuments.SubscriptionDocuments, dec)
-	}
-	c.sorter(subscriptionDocuments.SubscriptionDocuments)
 	return subscriptionDocuments, nil
 }
 
@@ -201,34 +205,7 @@ func (c *FakeSubscriptionDocumentClient) Get(ctx context.Context, partitionkey s
 	if !ext {
 		return nil, &Error{StatusCode: http.StatusNotFound}
 	}
-	return decodeSubscriptionDocument(out, c.jsonHandle)
-}
-
-func (c *FakeSubscriptionDocumentClient) Replace(ctx context.Context, partitionkey string, doc *pkg.SubscriptionDocument, options *Options) (*pkg.SubscriptionDocument, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	_, exists := c.docs[doc.ID]
-	if !exists {
-		return nil, &Error{StatusCode: http.StatusNotFound}
-	}
-
-	if options != nil {
-		err := c.processPreTriggers(ctx, doc, options)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	res, enc, err := c.encodeAndCopy(doc)
-	if err != nil {
-		return nil, err
-	}
-	c.docs[doc.ID] = enc
-	return res, nil
+	return c.decodeSubscriptionDocument(out)
 }
 
 func (c *FakeSubscriptionDocumentClient) Delete(ctx context.Context, partitionKey string, doc *pkg.SubscriptionDocument, options *Options) error {
@@ -285,29 +262,8 @@ func (c *FakeSubscriptionDocumentClient) Query(name string, query *Query, option
 }
 
 func (c *FakeSubscriptionDocumentClient) QueryAll(ctx context.Context, partitionkey string, query *Query, options *Options) (*pkg.SubscriptionDocuments, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-
-	quer, ok := c.queries[query.Query]
-	if ok {
-		items := quer(c, query, options)
-		res := &pkg.SubscriptionDocuments{}
-		err := items.NextRaw(ctx, -1, res)
-		return res, err
-	} else {
-		return nil, ErrNotImplemented
-	}
-}
-
-func (c *FakeSubscriptionDocumentClient) InjectTrigger(trigger string, impl FakeSubscriptionDocumentTrigger) {
-	c.triggers[trigger] = impl
-}
-
-func (c *FakeSubscriptionDocumentClient) InjectQuery(query string, impl FakeSubscriptionDocumentQuery) {
-	c.queries[query] = impl
+	iter := c.Query("", query, options)
+	return iter.Next(ctx, -1)
 }
 
 // NewFakeSubscriptionDocumentClientRawIterator creates a RawIterator that will produce only
@@ -319,20 +275,16 @@ func NewFakeSubscriptionDocumentClientRawIterator(docs []*pkg.SubscriptionDocume
 type fakeSubscriptionDocumentClientRawIterator struct {
 	docs         []*pkg.SubscriptionDocument
 	continuation int
+	done         bool
 }
 
-func (i *fakeSubscriptionDocumentClientRawIterator) Next(ctx context.Context, maxItemCount int) (*pkg.SubscriptionDocuments, error) {
-	out := &pkg.SubscriptionDocuments{}
-	err := i.NextRaw(ctx, maxItemCount, out)
-
-	if out.Count == 0 {
-		return nil, nil
-	}
-	return out, err
+func (i *fakeSubscriptionDocumentClientRawIterator) Next(ctx context.Context, maxItemCount int) (out *pkg.SubscriptionDocuments, err error) {
+	err = i.NextRaw(ctx, maxItemCount, &out)
+	return
 }
 
 func (i *fakeSubscriptionDocumentClientRawIterator) NextRaw(ctx context.Context, maxItemCount int, out interface{}) error {
-	if i.continuation >= len(i.docs) {
+	if i.done {
 		return nil
 	}
 
@@ -340,6 +292,7 @@ func (i *fakeSubscriptionDocumentClientRawIterator) NextRaw(ctx context.Context,
 	if maxItemCount == -1 {
 		docs = i.docs[i.continuation:]
 		i.continuation = len(i.docs)
+		i.done = true
 	} else {
 		max := i.continuation + maxItemCount
 		if max > len(i.docs) {
@@ -347,11 +300,14 @@ func (i *fakeSubscriptionDocumentClientRawIterator) NextRaw(ctx context.Context,
 		}
 		docs = i.docs[i.continuation:max]
 		i.continuation += max
+		i.done = i.Continuation() == ""
 	}
 
-	d := out.(*pkg.SubscriptionDocuments)
+	y := reflect.ValueOf(out)
+	d := &pkg.SubscriptionDocuments{}
 	d.SubscriptionDocuments = docs
 	d.Count = len(d.SubscriptionDocuments)
+	y.Elem().Set(reflect.ValueOf(d))
 	return nil
 }
 

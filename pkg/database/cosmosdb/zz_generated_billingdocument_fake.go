@@ -3,11 +3,10 @@
 package cosmosdb
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sync"
 
 	"github.com/ugorji/go/codec"
@@ -15,20 +14,20 @@ import (
 	pkg "github.com/Azure/ARO-RP/pkg/api"
 )
 
-type FakeBillingDocumentTrigger func(context.Context, *pkg.BillingDocument) error
-type FakeBillingDocumentQuery func(BillingDocumentClient, *Query, *Options) BillingDocumentRawIterator
+type fakeBillingDocumentTrigger func(context.Context, *pkg.BillingDocument) error
+type fakeBillingDocumentQuery func(BillingDocumentClient, *Query, *Options) BillingDocumentRawIterator
 
 var _ BillingDocumentClient = &FakeBillingDocumentClient{}
 
-func NewFakeBillingDocumentClient(h *codec.JsonHandle, uniqueKeys []string) *FakeBillingDocumentClient {
+func NewFakeBillingDocumentClient(h *codec.JsonHandle) *FakeBillingDocumentClient {
 	return &FakeBillingDocumentClient{
-		docs:       make(map[string][]byte),
-		triggers:   make(map[string]FakeBillingDocumentTrigger),
-		queries:    make(map[string]FakeBillingDocumentQuery),
-		uniqueKeys: uniqueKeys,
-		jsonHandle: h,
-		lock:       &sync.RWMutex{},
-		sorter:     func(in []*pkg.BillingDocument) {},
+		docs:              make(map[string][]byte),
+		triggers:          make(map[string]fakeBillingDocumentTrigger),
+		queries:           make(map[string]fakeBillingDocumentQuery),
+		jsonHandle:        h,
+		lock:              &sync.RWMutex{},
+		sorter:            func(in []*pkg.BillingDocument) {},
+		checkDocsConflict: func(*pkg.BillingDocument, *pkg.BillingDocument) bool { return false },
 	}
 }
 
@@ -36,46 +35,36 @@ type FakeBillingDocumentClient struct {
 	docs       map[string][]byte
 	jsonHandle *codec.JsonHandle
 	lock       *sync.RWMutex
-	triggers   map[string]FakeBillingDocumentTrigger
-	queries    map[string]FakeBillingDocumentQuery
-	uniqueKeys []string
+	triggers   map[string]fakeBillingDocumentTrigger
+	queries    map[string]fakeBillingDocumentQuery
 	sorter     func([]*pkg.BillingDocument)
+
+	// returns true if documents conflict
+	checkDocsConflict func(*pkg.BillingDocument, *pkg.BillingDocument) bool
 
 	// unavailable, if not nil, is an error to throw when attempting to
 	// communicate with this Client
 	unavailable error
 }
 
-func decodeBillingDocument(s []byte, handle *codec.JsonHandle) (*pkg.BillingDocument, error) {
+func (c *FakeBillingDocumentClient) decodeBillingDocument(s []byte) (*pkg.BillingDocument, error) {
 	res := &pkg.BillingDocument{}
-	err := codec.NewDecoder(bytes.NewBuffer(s), handle).Decode(&res)
+	err := codec.NewDecoderBytes(s, c.jsonHandle).Decode(&res)
 	return res, err
 }
 
-func decodeBillingDocumentToMap(s []byte, handle *codec.JsonHandle) (map[interface{}]interface{}, error) {
-	var res interface{}
-	err := codec.NewDecoder(bytes.NewBuffer(s), handle).Decode(&res)
+func (c *FakeBillingDocumentClient) encodeBillingDocument(doc *pkg.BillingDocument) ([]byte, error) {
+	res := make([]byte, 0)
+	err := codec.NewEncoderBytes(&res, c.jsonHandle).Encode(doc)
 	if err != nil {
 		return nil, err
 	}
-	ret, ok := res.(map[interface{}]interface{})
-	if !ok {
-		return nil, errors.New("Could not coerce")
-	}
-	return ret, err
-}
-
-func encodeBillingDocument(doc *pkg.BillingDocument, handle *codec.JsonHandle) (res []byte, err error) {
-	buf := &bytes.Buffer{}
-	err = codec.NewEncoder(buf, handle).Encode(doc)
-	if err != nil {
-		return
-	}
-	res = buf.Bytes()
-	return
+	return res, err
 }
 
 func (c *FakeBillingDocumentClient) MakeUnavailable(err error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	c.unavailable = err
 }
 
@@ -83,22 +72,32 @@ func (c *FakeBillingDocumentClient) UseSorter(sorter func([]*pkg.BillingDocument
 	c.sorter = sorter
 }
 
+func (c *FakeBillingDocumentClient) UseDocumentConflictChecker(checker func(*pkg.BillingDocument, *pkg.BillingDocument) bool) {
+	c.checkDocsConflict = checker
+}
+
+func (c *FakeBillingDocumentClient) InjectTrigger(trigger string, impl fakeBillingDocumentTrigger) {
+	c.triggers[trigger] = impl
+}
+
+func (c *FakeBillingDocumentClient) InjectQuery(query string, impl fakeBillingDocumentQuery) {
+	c.queries[query] = impl
+}
+
 func (c *FakeBillingDocumentClient) encodeAndCopy(doc *pkg.BillingDocument) (*pkg.BillingDocument, []byte, error) {
-	encoded, err := encodeBillingDocument(doc, c.jsonHandle)
+	encoded, err := c.encodeBillingDocument(doc)
 	if err != nil {
 		return nil, nil, err
 	}
-	res, err := decodeBillingDocument(encoded, c.jsonHandle)
+	res, err := c.decodeBillingDocument(encoded)
 	if err != nil {
 		return nil, nil, err
 	}
 	return res, encoded, err
 }
 
-func (c *FakeBillingDocumentClient) Create(ctx context.Context, partitionkey string, doc *pkg.BillingDocument, options *Options) (*pkg.BillingDocument, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
+func (c *FakeBillingDocumentClient) apply(ctx context.Context, partitionkey string, doc *pkg.BillingDocument, options *Options, isNew bool) (*pkg.BillingDocument, error) {
+	var docExists bool
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -113,29 +112,27 @@ func (c *FakeBillingDocumentClient) Create(ctx context.Context, partitionkey str
 	if err != nil {
 		return nil, err
 	}
-	docAsMap, err := decodeBillingDocumentToMap(enc, c.jsonHandle)
-	if err != nil {
-		return nil, err
-	}
 
 	for _, ext := range c.docs {
-		extDecoded, err := decodeBillingDocumentToMap(ext, c.jsonHandle)
+		dec, err := c.decodeBillingDocument(ext)
 		if err != nil {
 			return nil, err
 		}
 
-		for _, key := range c.uniqueKeys {
-			var ourKeyStr string
-			var theirKeyStr string
-			ourKey, ourKeyOk := docAsMap[key]
-			if ourKeyOk {
-				ourKeyStr, ourKeyOk = ourKey.(string)
+		if dec.ID == res.ID {
+			// If the document exists in the database, we want to error out in a
+			// create but mark the document as extant so it can be replaced if
+			// it is an update
+			if isNew {
+				return nil, &Error{
+					StatusCode: http.StatusConflict,
+					Message:    "Entity with the specified id already exists in the system",
+				}
+			} else {
+				docExists = true
 			}
-			theirKey, theirKeyOk := extDecoded[key]
-			if theirKeyOk {
-				theirKeyStr, theirKeyOk = theirKey.(string)
-			}
-			if ourKeyOk && theirKeyOk && ourKeyStr != "" && ourKeyStr == theirKeyStr {
+		} else {
+			if c.checkDocsConflict(dec, res) {
 				return nil, &Error{
 					StatusCode: http.StatusConflict,
 					Message:    "Entity with the specified id already exists in the system",
@@ -144,8 +141,26 @@ func (c *FakeBillingDocumentClient) Create(ctx context.Context, partitionkey str
 		}
 	}
 
+	if !isNew && !docExists {
+		return nil, &Error{StatusCode: http.StatusNotFound}
+	}
+
 	c.docs[doc.ID] = enc
 	return res, nil
+}
+
+func (c *FakeBillingDocumentClient) Create(ctx context.Context, partitionkey string, doc *pkg.BillingDocument, options *Options) (*pkg.BillingDocument, error) {
+	if c.unavailable != nil {
+		return nil, c.unavailable
+	}
+	return c.apply(ctx, partitionkey, doc, options, true)
+}
+
+func (c *FakeBillingDocumentClient) Replace(ctx context.Context, partitionkey string, doc *pkg.BillingDocument, options *Options) (*pkg.BillingDocument, error) {
+	if c.unavailable != nil {
+		return nil, c.unavailable
+	}
+	return c.apply(ctx, partitionkey, doc, options, false)
 }
 
 func (c *FakeBillingDocumentClient) List(*Options) BillingDocumentIterator {
@@ -157,7 +172,7 @@ func (c *FakeBillingDocumentClient) List(*Options) BillingDocumentIterator {
 
 	docs := make([]*pkg.BillingDocument, 0, len(c.docs))
 	for _, d := range c.docs {
-		r, err := decodeBillingDocument(d, c.jsonHandle)
+		r, err := c.decodeBillingDocument(d)
 		if err != nil {
 			return NewFakeBillingDocumentClientErroringRawIterator(err)
 		}
@@ -167,26 +182,15 @@ func (c *FakeBillingDocumentClient) List(*Options) BillingDocumentIterator {
 	return NewFakeBillingDocumentClientRawIterator(docs, 0)
 }
 
-func (c *FakeBillingDocumentClient) ListAll(context.Context, *Options) (*pkg.BillingDocuments, error) {
+func (c *FakeBillingDocumentClient) ListAll(ctx context.Context, opts *Options) (*pkg.BillingDocuments, error) {
 	if c.unavailable != nil {
 		return nil, c.unavailable
 	}
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-
-	billingDocuments := &pkg.BillingDocuments{
-		Count:            len(c.docs),
-		BillingDocuments: make([]*pkg.BillingDocument, 0, len(c.docs)),
+	iter := c.List(opts)
+	billingDocuments, err := iter.Next(ctx, -1)
+	if err != nil {
+		return nil, err
 	}
-
-	for _, d := range c.docs {
-		dec, err := decodeBillingDocument(d, c.jsonHandle)
-		if err != nil {
-			return nil, err
-		}
-		billingDocuments.BillingDocuments = append(billingDocuments.BillingDocuments, dec)
-	}
-	c.sorter(billingDocuments.BillingDocuments)
 	return billingDocuments, nil
 }
 
@@ -201,34 +205,7 @@ func (c *FakeBillingDocumentClient) Get(ctx context.Context, partitionkey string
 	if !ext {
 		return nil, &Error{StatusCode: http.StatusNotFound}
 	}
-	return decodeBillingDocument(out, c.jsonHandle)
-}
-
-func (c *FakeBillingDocumentClient) Replace(ctx context.Context, partitionkey string, doc *pkg.BillingDocument, options *Options) (*pkg.BillingDocument, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	_, exists := c.docs[doc.ID]
-	if !exists {
-		return nil, &Error{StatusCode: http.StatusNotFound}
-	}
-
-	if options != nil {
-		err := c.processPreTriggers(ctx, doc, options)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	res, enc, err := c.encodeAndCopy(doc)
-	if err != nil {
-		return nil, err
-	}
-	c.docs[doc.ID] = enc
-	return res, nil
+	return c.decodeBillingDocument(out)
 }
 
 func (c *FakeBillingDocumentClient) Delete(ctx context.Context, partitionKey string, doc *pkg.BillingDocument, options *Options) error {
@@ -285,29 +262,8 @@ func (c *FakeBillingDocumentClient) Query(name string, query *Query, options *Op
 }
 
 func (c *FakeBillingDocumentClient) QueryAll(ctx context.Context, partitionkey string, query *Query, options *Options) (*pkg.BillingDocuments, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-
-	quer, ok := c.queries[query.Query]
-	if ok {
-		items := quer(c, query, options)
-		res := &pkg.BillingDocuments{}
-		err := items.NextRaw(ctx, -1, res)
-		return res, err
-	} else {
-		return nil, ErrNotImplemented
-	}
-}
-
-func (c *FakeBillingDocumentClient) InjectTrigger(trigger string, impl FakeBillingDocumentTrigger) {
-	c.triggers[trigger] = impl
-}
-
-func (c *FakeBillingDocumentClient) InjectQuery(query string, impl FakeBillingDocumentQuery) {
-	c.queries[query] = impl
+	iter := c.Query("", query, options)
+	return iter.Next(ctx, -1)
 }
 
 // NewFakeBillingDocumentClientRawIterator creates a RawIterator that will produce only
@@ -319,20 +275,16 @@ func NewFakeBillingDocumentClientRawIterator(docs []*pkg.BillingDocument, contin
 type fakeBillingDocumentClientRawIterator struct {
 	docs         []*pkg.BillingDocument
 	continuation int
+	done         bool
 }
 
-func (i *fakeBillingDocumentClientRawIterator) Next(ctx context.Context, maxItemCount int) (*pkg.BillingDocuments, error) {
-	out := &pkg.BillingDocuments{}
-	err := i.NextRaw(ctx, maxItemCount, out)
-
-	if out.Count == 0 {
-		return nil, nil
-	}
-	return out, err
+func (i *fakeBillingDocumentClientRawIterator) Next(ctx context.Context, maxItemCount int) (out *pkg.BillingDocuments, err error) {
+	err = i.NextRaw(ctx, maxItemCount, &out)
+	return
 }
 
 func (i *fakeBillingDocumentClientRawIterator) NextRaw(ctx context.Context, maxItemCount int, out interface{}) error {
-	if i.continuation >= len(i.docs) {
+	if i.done {
 		return nil
 	}
 
@@ -340,6 +292,7 @@ func (i *fakeBillingDocumentClientRawIterator) NextRaw(ctx context.Context, maxI
 	if maxItemCount == -1 {
 		docs = i.docs[i.continuation:]
 		i.continuation = len(i.docs)
+		i.done = true
 	} else {
 		max := i.continuation + maxItemCount
 		if max > len(i.docs) {
@@ -347,11 +300,14 @@ func (i *fakeBillingDocumentClientRawIterator) NextRaw(ctx context.Context, maxI
 		}
 		docs = i.docs[i.continuation:max]
 		i.continuation += max
+		i.done = i.Continuation() == ""
 	}
 
-	d := out.(*pkg.BillingDocuments)
+	y := reflect.ValueOf(out)
+	d := &pkg.BillingDocuments{}
 	d.BillingDocuments = docs
 	d.Count = len(d.BillingDocuments)
+	y.Elem().Set(reflect.ValueOf(d))
 	return nil
 }
 

@@ -110,7 +110,7 @@ func TestDeleteOpenShiftCluster(t *testing.T) {
 			}
 
 			if tt.dbError != nil {
-				ti.dbclients.MakeUnavailable(tt.dbError)
+				ti.dbclients.SetError(tt.dbError)
 			}
 
 			f, err := NewFrontend(ctx, ti.log, ti.env, ti.db, api.APIs, &noop.Noop{}, nil, nil)
@@ -150,7 +150,7 @@ func TestDeleteOpenShiftCluster(t *testing.T) {
 				t.Error(err)
 			}
 
-			ti.dbclients.MakeUnavailable(nil)
+			ti.dbclients.SetError(nil)
 			if tt.wantDocuments != nil {
 				tt.wantDocuments(ti.checker)
 			}

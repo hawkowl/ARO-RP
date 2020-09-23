@@ -3,9 +3,7 @@
 package cosmosdb
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -15,127 +13,140 @@ import (
 	pkg "github.com/Azure/ARO-RP/pkg/api"
 )
 
-type FakeBillingDocumentTrigger func(context.Context, *pkg.BillingDocument) error
-type FakeBillingDocumentQuery func(BillingDocumentClient, *Query, *Options) BillingDocumentRawIterator
+type fakeBillingDocumentTriggerHandler func(context.Context, *pkg.BillingDocument) error
+type fakeBillingDocumentQueryHandler func(BillingDocumentClient, *Query, *Options) BillingDocumentRawIterator
 
 var _ BillingDocumentClient = &FakeBillingDocumentClient{}
 
-func NewFakeBillingDocumentClient(h *codec.JsonHandle, uniqueKeys []string) *FakeBillingDocumentClient {
+// NewFakeBillingDocumentClient returns a FakeBillingDocumentClient
+func NewFakeBillingDocumentClient(h *codec.JsonHandle) *FakeBillingDocumentClient {
 	return &FakeBillingDocumentClient{
-		docs:       make(map[string][]byte),
-		triggers:   make(map[string]FakeBillingDocumentTrigger),
-		queries:    make(map[string]FakeBillingDocumentQuery),
-		uniqueKeys: uniqueKeys,
-		jsonHandle: h,
-		lock:       &sync.RWMutex{},
-		sorter:     func(in []*pkg.BillingDocument) {},
+		billingDocuments: make(map[string][]byte),
+		triggerHandlers:  make(map[string]fakeBillingDocumentTriggerHandler),
+		queryHandlers:    make(map[string]fakeBillingDocumentQueryHandler),
+		jsonHandle:       h,
+		lock:             &sync.RWMutex{},
 	}
 }
 
+// FakeBillingDocumentClient is a FakeBillingDocumentClient
 type FakeBillingDocumentClient struct {
-	docs       map[string][]byte
-	jsonHandle *codec.JsonHandle
-	lock       *sync.RWMutex
-	triggers   map[string]FakeBillingDocumentTrigger
-	queries    map[string]FakeBillingDocumentQuery
-	uniqueKeys []string
-	sorter     func([]*pkg.BillingDocument)
+	billingDocuments map[string][]byte
+	jsonHandle       *codec.JsonHandle
+	lock             *sync.RWMutex
+	triggerHandlers  map[string]fakeBillingDocumentTriggerHandler
+	queryHandlers    map[string]fakeBillingDocumentQueryHandler
+	sorter           func([]*pkg.BillingDocument)
 
-	// unavailable, if not nil, is an error to throw when attempting to
-	// communicate with this Client
-	unavailable error
+	// returns true if documents conflict
+	conflictChecker func(*pkg.BillingDocument, *pkg.BillingDocument) bool
+
+	// err, if not nil, is an error to return when attempting to communicate
+	// with this Client
+	err error
 }
 
-func decodeBillingDocument(s []byte, handle *codec.JsonHandle) (*pkg.BillingDocument, error) {
-	res := &pkg.BillingDocument{}
-	err := codec.NewDecoder(bytes.NewBuffer(s), handle).Decode(&res)
-	return res, err
-}
-
-func decodeBillingDocumentToMap(s []byte, handle *codec.JsonHandle) (map[interface{}]interface{}, error) {
-	var res interface{}
-	err := codec.NewDecoder(bytes.NewBuffer(s), handle).Decode(&res)
-	if err != nil {
-		return nil, err
-	}
-	ret, ok := res.(map[interface{}]interface{})
-	if !ok {
-		return nil, errors.New("Could not coerce")
-	}
-	return ret, err
-}
-
-func encodeBillingDocument(doc *pkg.BillingDocument, handle *codec.JsonHandle) (res []byte, err error) {
-	buf := &bytes.Buffer{}
-	err = codec.NewEncoder(buf, handle).Encode(doc)
-	if err != nil {
-		return
-	}
-	res = buf.Bytes()
+func (c *FakeBillingDocumentClient) decodeBillingDocument(s []byte) (billingDocument *pkg.BillingDocument, err error) {
+	err = codec.NewDecoderBytes(s, c.jsonHandle).Decode(&billingDocument)
 	return
 }
 
-func (c *FakeBillingDocumentClient) MakeUnavailable(err error) {
-	c.unavailable = err
+func (c *FakeBillingDocumentClient) encodeBillingDocument(billingDocument *pkg.BillingDocument) (b []byte, err error) {
+	err = codec.NewEncoderBytes(&b, c.jsonHandle).Encode(billingDocument)
+	return
 }
 
-func (c *FakeBillingDocumentClient) UseSorter(sorter func([]*pkg.BillingDocument)) {
-	c.sorter = sorter
-}
-
-func (c *FakeBillingDocumentClient) encodeAndCopy(doc *pkg.BillingDocument) (*pkg.BillingDocument, []byte, error) {
-	encoded, err := encodeBillingDocument(doc, c.jsonHandle)
-	if err != nil {
-		return nil, nil, err
-	}
-	res, err := decodeBillingDocument(encoded, c.jsonHandle)
-	if err != nil {
-		return nil, nil, err
-	}
-	return res, encoded, err
-}
-
-func (c *FakeBillingDocumentClient) Create(ctx context.Context, partitionkey string, doc *pkg.BillingDocument, options *Options) (*pkg.BillingDocument, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
+// SetError sets or unsets an error that will be returned on any
+// FakeBillingDocumentClient method invocation
+func (c *FakeBillingDocumentClient) SetError(err error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
+	c.err = err
+}
+
+// SetSorter sets or unsets a sorter function which will be used to sort values
+// returned by List() for test stability
+func (c *FakeBillingDocumentClient) SetSorter(sorter func([]*pkg.BillingDocument)) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.sorter = sorter
+}
+
+// SetConflictChecker sets or unsets a function which can be used to validate
+// additional unique keys in a BillingDocument
+func (c *FakeBillingDocumentClient) SetConflictChecker(conflictChecker func(*pkg.BillingDocument, *pkg.BillingDocument) bool) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.conflictChecker = conflictChecker
+}
+
+// SetTriggerHandler sets or unsets a trigger handler
+func (c *FakeBillingDocumentClient) SetTriggerHandler(triggerName string, trigger fakeBillingDocumentTriggerHandler) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.triggerHandlers[triggerName] = trigger
+}
+
+// SetQueryHandler sets or unsets a query handler
+func (c *FakeBillingDocumentClient) SetQueryHandler(queryName string, query fakeBillingDocumentQueryHandler) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.queryHandlers[queryName] = query
+}
+
+func (c *FakeBillingDocumentClient) deepCopy(billingDocument *pkg.BillingDocument) (*pkg.BillingDocument, error) {
+	b, err := c.encodeBillingDocument(billingDocument)
+	if err != nil {
+		return nil, err
+	}
+
+	return c.decodeBillingDocument(b)
+}
+
+func (c *FakeBillingDocumentClient) apply(ctx context.Context, partitionkey string, billingDocument *pkg.BillingDocument, options *Options, isCreate bool) (*pkg.BillingDocument, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	if c.err != nil {
+		return nil, c.err
+	}
+
+	billingDocument, err := c.deepCopy(billingDocument) // copy now because pretriggers can mutate billingDocument
+	if err != nil {
+		return nil, err
+	}
+
 	if options != nil {
-		err := c.processPreTriggers(ctx, doc, options)
+		err := c.processPreTriggers(ctx, billingDocument, options)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	res, enc, err := c.encodeAndCopy(doc)
-	if err != nil {
-		return nil, err
-	}
-	docAsMap, err := decodeBillingDocumentToMap(enc, c.jsonHandle)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, ext := range c.docs {
-		extDecoded, err := decodeBillingDocumentToMap(ext, c.jsonHandle)
-		if err != nil {
-			return nil, err
+	_, exists := c.billingDocuments[billingDocument.ID]
+	if isCreate && exists {
+		return nil, &Error{
+			StatusCode: http.StatusConflict,
+			Message:    "Entity with the specified id already exists in the system",
 		}
+	}
+	if !isCreate && !exists {
+		return nil, &Error{StatusCode: http.StatusNotFound}
+	}
 
-		for _, key := range c.uniqueKeys {
-			var ourKeyStr string
-			var theirKeyStr string
-			ourKey, ourKeyOk := docAsMap[key]
-			if ourKeyOk {
-				ourKeyStr, ourKeyOk = ourKey.(string)
+	if c.conflictChecker != nil {
+		for id := range c.billingDocuments {
+			billingDocumentToCheck, err := c.decodeBillingDocument(c.billingDocuments[id])
+			if err != nil {
+				return nil, err
 			}
-			theirKey, theirKeyOk := extDecoded[key]
-			if theirKeyOk {
-				theirKeyStr, theirKeyOk = theirKey.(string)
-			}
-			if ourKeyOk && theirKeyOk && ourKeyStr != "" && ourKeyStr == theirKeyStr {
+
+			if c.conflictChecker(billingDocumentToCheck, billingDocument) {
 				return nil, &Error{
 					StatusCode: http.StatusConflict,
 					Message:    "Entity with the specified id already exists in the system",
@@ -144,121 +155,108 @@ func (c *FakeBillingDocumentClient) Create(ctx context.Context, partitionkey str
 		}
 	}
 
-	c.docs[doc.ID] = enc
-	return res, nil
+	b, err := c.encodeBillingDocument(billingDocument)
+	if err != nil {
+		return nil, err
+	}
+
+	c.billingDocuments[billingDocument.ID] = b
+
+	return billingDocument, nil
 }
 
+// Create creates a BillingDocument in the database
+func (c *FakeBillingDocumentClient) Create(ctx context.Context, partitionkey string, billingDocument *pkg.BillingDocument, options *Options) (*pkg.BillingDocument, error) {
+	return c.apply(ctx, partitionkey, billingDocument, options, true)
+}
+
+// Replace replaces a BillingDocument in the database
+func (c *FakeBillingDocumentClient) Replace(ctx context.Context, partitionkey string, billingDocument *pkg.BillingDocument, options *Options) (*pkg.BillingDocument, error) {
+	return c.apply(ctx, partitionkey, billingDocument, options, false)
+}
+
+// List returns a BillingDocumentIterator to list all BillingDocuments in the database
 func (c *FakeBillingDocumentClient) List(*Options) BillingDocumentIterator {
-	if c.unavailable != nil {
-		return NewFakeBillingDocumentClientErroringRawIterator(c.unavailable)
-	}
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	docs := make([]*pkg.BillingDocument, 0, len(c.docs))
-	for _, d := range c.docs {
-		r, err := decodeBillingDocument(d, c.jsonHandle)
+	if c.err != nil {
+		return NewFakeBillingDocumentErroringRawIterator(c.err)
+	}
+
+	billingDocuments := make([]*pkg.BillingDocument, 0, len(c.billingDocuments))
+	for _, d := range c.billingDocuments {
+		r, err := c.decodeBillingDocument(d)
 		if err != nil {
-			return NewFakeBillingDocumentClientErroringRawIterator(err)
+			return NewFakeBillingDocumentErroringRawIterator(err)
 		}
-		docs = append(docs, r)
+		billingDocuments = append(billingDocuments, r)
 	}
-	c.sorter(docs)
-	return NewFakeBillingDocumentClientRawIterator(docs, 0)
+
+	if c.sorter != nil {
+		c.sorter(billingDocuments)
+	}
+
+	return NewFakeBillingDocumentIterator(billingDocuments, 0)
 }
 
-func (c *FakeBillingDocumentClient) ListAll(context.Context, *Options) (*pkg.BillingDocuments, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
+// ListAll lists all BillingDocuments in the database
+func (c *FakeBillingDocumentClient) ListAll(ctx context.Context, options *Options) (*pkg.BillingDocuments, error) {
+	iter := c.List(options)
+	return iter.Next(ctx, -1)
+}
+
+// Get gets a BillingDocument from the database
+func (c *FakeBillingDocumentClient) Get(ctx context.Context, partitionkey string, id string, options *Options) (*pkg.BillingDocument, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	billingDocuments := &pkg.BillingDocuments{
-		Count:            len(c.docs),
-		BillingDocuments: make([]*pkg.BillingDocument, 0, len(c.docs)),
+	if c.err != nil {
+		return nil, c.err
 	}
 
-	for _, d := range c.docs {
-		dec, err := decodeBillingDocument(d, c.jsonHandle)
-		if err != nil {
-			return nil, err
-		}
-		billingDocuments.BillingDocuments = append(billingDocuments.BillingDocuments, dec)
-	}
-	c.sorter(billingDocuments.BillingDocuments)
-	return billingDocuments, nil
-}
-
-func (c *FakeBillingDocumentClient) Get(ctx context.Context, partitionkey string, documentId string, options *Options) (*pkg.BillingDocument, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-
-	out, ext := c.docs[documentId]
-	if !ext {
-		return nil, &Error{StatusCode: http.StatusNotFound}
-	}
-	return decodeBillingDocument(out, c.jsonHandle)
-}
-
-func (c *FakeBillingDocumentClient) Replace(ctx context.Context, partitionkey string, doc *pkg.BillingDocument, options *Options) (*pkg.BillingDocument, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	_, exists := c.docs[doc.ID]
+	billingDocument, exists := c.billingDocuments[id]
 	if !exists {
 		return nil, &Error{StatusCode: http.StatusNotFound}
 	}
 
-	if options != nil {
-		err := c.processPreTriggers(ctx, doc, options)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	res, enc, err := c.encodeAndCopy(doc)
-	if err != nil {
-		return nil, err
-	}
-	c.docs[doc.ID] = enc
-	return res, nil
+	return c.decodeBillingDocument(billingDocument)
 }
 
-func (c *FakeBillingDocumentClient) Delete(ctx context.Context, partitionKey string, doc *pkg.BillingDocument, options *Options) error {
-	if c.unavailable != nil {
-		return c.unavailable
-	}
+// Delete deletes a BillingDocument from the database
+func (c *FakeBillingDocumentClient) Delete(ctx context.Context, partitionKey string, billingDocument *pkg.BillingDocument, options *Options) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	_, ext := c.docs[doc.ID]
-	if !ext {
+	if c.err != nil {
+		return c.err
+	}
+
+	_, exists := c.billingDocuments[billingDocument.ID]
+	if !exists {
 		return &Error{StatusCode: http.StatusNotFound}
 	}
 
-	delete(c.docs, doc.ID)
+	delete(c.billingDocuments, billingDocument.ID)
 	return nil
 }
 
+// ChangeFeed is unimplemented
 func (c *FakeBillingDocumentClient) ChangeFeed(*Options) BillingDocumentIterator {
-	if c.unavailable != nil {
-		return NewFakeBillingDocumentClientErroringRawIterator(c.unavailable)
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	if c.err != nil {
+		return NewFakeBillingDocumentErroringRawIterator(c.err)
 	}
-	return NewFakeBillingDocumentClientErroringRawIterator(ErrNotImplemented)
+
+	return NewFakeBillingDocumentErroringRawIterator(ErrNotImplemented)
 }
 
-func (c *FakeBillingDocumentClient) processPreTriggers(ctx context.Context, doc *pkg.BillingDocument, options *Options) error {
-	for _, trigger := range options.PreTriggers {
-		trig, ok := c.triggers[trigger]
-		if ok {
-			err := trig(ctx, doc)
+func (c *FakeBillingDocumentClient) processPreTriggers(ctx context.Context, billingDocument *pkg.BillingDocument, options *Options) error {
+	for _, triggerName := range options.PreTriggers {
+		if triggerHandler := c.triggerHandlers[triggerName]; triggerHandler != nil {
+			err := triggerHandler(ctx, billingDocument)
 			if err != nil {
 				return err
 			}
@@ -266,104 +264,82 @@ func (c *FakeBillingDocumentClient) processPreTriggers(ctx context.Context, doc 
 			return ErrNotImplemented
 		}
 	}
+
 	return nil
 }
 
+// Query calls a query handler to implement database querying
 func (c *FakeBillingDocumentClient) Query(name string, query *Query, options *Options) BillingDocumentRawIterator {
-	if c.unavailable != nil {
-		return NewFakeBillingDocumentClientErroringRawIterator(c.unavailable)
-	}
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	quer, ok := c.queries[query.Query]
-	if ok {
-		return quer(c, query, options)
-	} else {
-		return NewFakeBillingDocumentClientErroringRawIterator(ErrNotImplemented)
+	if c.err != nil {
+		return NewFakeBillingDocumentErroringRawIterator(c.err)
 	}
+
+	if queryHandler := c.queryHandlers[query.Query]; queryHandler != nil {
+		return queryHandler(c, query, options)
+	}
+
+	return NewFakeBillingDocumentErroringRawIterator(ErrNotImplemented)
 }
 
+// QueryAll calls a query handler to implement database querying
 func (c *FakeBillingDocumentClient) QueryAll(ctx context.Context, partitionkey string, query *Query, options *Options) (*pkg.BillingDocuments, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-
-	quer, ok := c.queries[query.Query]
-	if ok {
-		items := quer(c, query, options)
-		res := &pkg.BillingDocuments{}
-		err := items.NextRaw(ctx, -1, res)
-		return res, err
-	} else {
-		return nil, ErrNotImplemented
-	}
+	iter := c.Query("", query, options)
+	return iter.Next(ctx, -1)
 }
 
-func (c *FakeBillingDocumentClient) InjectTrigger(trigger string, impl FakeBillingDocumentTrigger) {
-	c.triggers[trigger] = impl
+func NewFakeBillingDocumentIterator(billingDocuments []*pkg.BillingDocument, continuation int) BillingDocumentRawIterator {
+	return &fakeBillingDocumentIterator{billingDocuments: billingDocuments, continuation: continuation}
 }
 
-func (c *FakeBillingDocumentClient) InjectQuery(query string, impl FakeBillingDocumentQuery) {
-	c.queries[query] = impl
+type fakeBillingDocumentIterator struct {
+	billingDocuments []*pkg.BillingDocument
+	continuation     int
+	done             bool
 }
 
-// NewFakeBillingDocumentClientRawIterator creates a RawIterator that will produce only
-// BillingDocuments from Next() and NextRaw().
-func NewFakeBillingDocumentClientRawIterator(docs []*pkg.BillingDocument, continuation int) BillingDocumentRawIterator {
-	return &fakeBillingDocumentClientRawIterator{docs: docs, continuation: continuation}
+func (i *fakeBillingDocumentIterator) NextRaw(ctx context.Context, maxItemCount int, out interface{}) error {
+	return ErrNotImplemented
 }
 
-type fakeBillingDocumentClientRawIterator struct {
-	docs         []*pkg.BillingDocument
-	continuation int
-}
-
-func (i *fakeBillingDocumentClientRawIterator) Next(ctx context.Context, maxItemCount int) (*pkg.BillingDocuments, error) {
-	out := &pkg.BillingDocuments{}
-	err := i.NextRaw(ctx, maxItemCount, out)
-
-	if out.Count == 0 {
+func (i *fakeBillingDocumentIterator) Next(ctx context.Context, maxItemCount int) (*pkg.BillingDocuments, error) {
+	if i.done {
 		return nil, nil
 	}
-	return out, err
-}
 
-func (i *fakeBillingDocumentClientRawIterator) NextRaw(ctx context.Context, maxItemCount int, out interface{}) error {
-	if i.continuation >= len(i.docs) {
-		return nil
-	}
-
-	var docs []*pkg.BillingDocument
+	var billingDocuments []*pkg.BillingDocument
 	if maxItemCount == -1 {
-		docs = i.docs[i.continuation:]
-		i.continuation = len(i.docs)
+		billingDocuments = i.billingDocuments[i.continuation:]
+		i.continuation = len(i.billingDocuments)
+		i.done = true
 	} else {
 		max := i.continuation + maxItemCount
-		if max > len(i.docs) {
-			max = len(i.docs)
+		if max > len(i.billingDocuments) {
+			max = len(i.billingDocuments)
 		}
-		docs = i.docs[i.continuation:max]
+		billingDocuments = i.billingDocuments[i.continuation:max]
 		i.continuation += max
+		i.done = i.Continuation() == ""
 	}
 
-	d := out.(*pkg.BillingDocuments)
-	d.BillingDocuments = docs
-	d.Count = len(d.BillingDocuments)
-	return nil
+	return &pkg.BillingDocuments{
+		BillingDocuments: billingDocuments,
+		Count:            len(billingDocuments),
+	}, nil
 }
 
-func (i *fakeBillingDocumentClientRawIterator) Continuation() string {
-	if i.continuation >= len(i.docs) {
+func (i *fakeBillingDocumentIterator) Continuation() string {
+	if i.continuation >= len(i.billingDocuments) {
 		return ""
 	}
 	return fmt.Sprintf("%d", i.continuation)
 }
 
-// fakeBillingDocumentErroringRawIterator is a RawIterator that will return an error on use.
-func NewFakeBillingDocumentClientErroringRawIterator(err error) *fakeBillingDocumentErroringRawIterator {
+// NewFakeBillingDocumentErroringRawIterator returns a BillingDocumentRawIterator which
+// whose methods return the given error
+func NewFakeBillingDocumentErroringRawIterator(err error) BillingDocumentRawIterator {
 	return &fakeBillingDocumentErroringRawIterator{err: err}
 }
 

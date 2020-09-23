@@ -60,7 +60,7 @@ func fakeOpenShiftClustersQueueLengthQuery(client cosmosdb.OpenShiftClusterDocum
 
 func fakeOpenShiftClustersDequeueQuery(client cosmosdb.OpenShiftClusterDocumentClient, query *cosmosdb.Query, options *cosmosdb.Options) cosmosdb.OpenShiftClusterDocumentRawIterator {
 	docs := getQueuedOpenShiftDocuments(client)
-	return cosmosdb.NewFakeOpenShiftClusterDocumentClientRawIterator(docs, 0)
+	return cosmosdb.NewFakeOpenShiftClusterDocumentIterator(docs, 0)
 }
 
 func fakeOpenshiftClustersMatchQuery(client cosmosdb.OpenShiftClusterDocumentClient, query *cosmosdb.Query, options *cosmosdb.Options) cosmosdb.OpenShiftClusterDocumentRawIterator {
@@ -68,7 +68,7 @@ func fakeOpenshiftClustersMatchQuery(client cosmosdb.OpenShiftClusterDocumentCli
 
 	startingIndex, err := fakeOpenShiftClustersGetContinuation(options)
 	if err != nil {
-		return cosmosdb.NewFakeOpenShiftClusterDocumentClientErroringRawIterator(err)
+		return cosmosdb.NewFakeOpenShiftClusterDocumentErroringRawIterator(err)
 	}
 
 	docs := fakeOpenShiftClustersGetAllDocuments(client)
@@ -82,13 +82,13 @@ func fakeOpenshiftClustersMatchQuery(client cosmosdb.OpenShiftClusterDocumentCli
 		case "@resourceGroupID":
 			key = r.ClusterResourceGroupIDKey
 		default:
-			return cosmosdb.NewFakeOpenShiftClusterDocumentClientErroringRawIterator(cosmosdb.ErrNotImplemented)
+			return cosmosdb.NewFakeOpenShiftClusterDocumentErroringRawIterator(cosmosdb.ErrNotImplemented)
 		}
 		if key == query.Parameters[0].Value {
 			results = append(results, r)
 		}
 	}
-	return cosmosdb.NewFakeOpenShiftClusterDocumentClientRawIterator(results, int(startingIndex))
+	return cosmosdb.NewFakeOpenShiftClusterDocumentIterator(results, int(startingIndex))
 }
 
 func fakeOpenShiftClustersGetAllDocuments(client cosmosdb.OpenShiftClusterDocumentClient) []*api.OpenShiftClusterDocument {
@@ -112,7 +112,7 @@ func fakeOpenShiftClustersGetContinuation(options *cosmosdb.Options) (startingIn
 func fakeOpenshiftClustersPrefixQuery(client cosmosdb.OpenShiftClusterDocumentClient, query *cosmosdb.Query, options *cosmosdb.Options) cosmosdb.OpenShiftClusterDocumentRawIterator {
 	startingIndex, err := fakeOpenShiftClustersGetContinuation(options)
 	if err != nil {
-		return cosmosdb.NewFakeOpenShiftClusterDocumentClientErroringRawIterator(err)
+		return cosmosdb.NewFakeOpenShiftClusterDocumentErroringRawIterator(err)
 	}
 
 	docs := fakeOpenShiftClustersGetAllDocuments(client)
@@ -122,7 +122,7 @@ func fakeOpenshiftClustersPrefixQuery(client cosmosdb.OpenShiftClusterDocumentCl
 			results = append(results, r)
 		}
 	}
-	return cosmosdb.NewFakeOpenShiftClusterDocumentClientRawIterator(results, int(startingIndex))
+	return cosmosdb.NewFakeOpenShiftClusterDocumentIterator(results, int(startingIndex))
 }
 
 func fakeOpenShiftClustersRenewLeaseTrigger(ctx context.Context, doc *api.OpenShiftClusterDocument) error {
@@ -130,17 +130,28 @@ func fakeOpenShiftClustersRenewLeaseTrigger(ctx context.Context, doc *api.OpenSh
 	return nil
 }
 
+func openShiftClusterConflictChecker(one *api.OpenShiftClusterDocument, two *api.OpenShiftClusterDocument) bool {
+	if one.ClusterResourceGroupIDKey != "" && two.ClusterResourceGroupIDKey != "" && one.ClusterResourceGroupIDKey == two.ClusterResourceGroupIDKey {
+		return true
+	}
+	if one.ClientIDKey != "" && two.ClientIDKey != "" && one.ClientIDKey == two.ClientIDKey {
+		return true
+	}
+	return false
+}
+
 func injectOpenShiftClusters(c *cosmosdb.FakeOpenShiftClusterDocumentClient) {
-	c.InjectQuery(database.OpenShiftClustersDequeueQuery, fakeOpenShiftClustersDequeueQuery)
-	c.InjectQuery(database.OpenShiftClustersQueueLengthQuery, fakeOpenShiftClustersQueueLengthQuery)
-	c.InjectQuery(database.OpenShiftClustersGetQuery, fakeOpenshiftClustersMatchQuery)
-	c.InjectQuery(database.OpenshiftClustersClientIdQuery, fakeOpenshiftClustersMatchQuery)
-	c.InjectQuery(database.OpenshiftClustersResourceGroupQuery, fakeOpenshiftClustersMatchQuery)
-	c.InjectQuery(database.OpenshiftClustersPrefixQuery, fakeOpenshiftClustersPrefixQuery)
+	c.SetQueryHandler(database.OpenShiftClustersDequeueQuery, fakeOpenShiftClustersDequeueQuery)
+	c.SetQueryHandler(database.OpenShiftClustersQueueLengthQuery, fakeOpenShiftClustersQueueLengthQuery)
+	c.SetQueryHandler(database.OpenShiftClustersGetQuery, fakeOpenshiftClustersMatchQuery)
+	c.SetQueryHandler(database.OpenshiftClustersClientIdQuery, fakeOpenshiftClustersMatchQuery)
+	c.SetQueryHandler(database.OpenshiftClustersResourceGroupQuery, fakeOpenshiftClustersMatchQuery)
+	c.SetQueryHandler(database.OpenshiftClustersPrefixQuery, fakeOpenshiftClustersPrefixQuery)
 
-	c.InjectTrigger("renewLease", fakeOpenShiftClustersRenewLeaseTrigger)
+	c.SetTriggerHandler("renewLease", fakeOpenShiftClustersRenewLeaseTrigger)
 
-	c.UseSorter(func(in []*api.OpenShiftClusterDocument) { sort.Sort(ByKey(in)) })
+	c.SetSorter(func(in []*api.OpenShiftClusterDocument) { sort.Sort(ByKey(in)) })
+	c.SetConflictChecker(openShiftClusterConflictChecker)
 }
 
 // fakeOpenShiftClustersQueueLengthIterator is a RawIterator that will produce a

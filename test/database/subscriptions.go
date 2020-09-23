@@ -29,7 +29,7 @@ func getQueuedSubscriptionDocuments(client cosmosdb.SubscriptionDocumentClient) 
 
 func fakeSubscriptionsDequeueQuery(client cosmosdb.SubscriptionDocumentClient, query *cosmosdb.Query, options *cosmosdb.Options) cosmosdb.SubscriptionDocumentRawIterator {
 	docs := getQueuedSubscriptionDocuments(client)
-	return cosmosdb.NewFakeSubscriptionDocumentClientRawIterator(docs, 0)
+	return cosmosdb.NewFakeSubscriptionDocumentIterator(docs, 0)
 }
 
 func fakeBillingRenewLeaseTrigger(ctx context.Context, doc *api.SubscriptionDocument) error {
@@ -43,8 +43,8 @@ func fakeBillingRetryLaterTrigger(ctx context.Context, doc *api.SubscriptionDocu
 }
 
 func injectSubscriptions(c *cosmosdb.FakeSubscriptionDocumentClient) {
-	c.InjectQuery(database.SubscriptionsDequeueQuery, fakeSubscriptionsDequeueQuery)
+	c.SetQueryHandler(database.SubscriptionsDequeueQuery, fakeSubscriptionsDequeueQuery)
 
-	c.InjectTrigger("renewLease", fakeBillingRenewLeaseTrigger)
-	c.InjectTrigger("retryLater", fakeBillingRetryLaterTrigger)
+	c.SetTriggerHandler("renewLease", fakeBillingRenewLeaseTrigger)
+	c.SetTriggerHandler("retryLater", fakeBillingRetryLaterTrigger)
 }

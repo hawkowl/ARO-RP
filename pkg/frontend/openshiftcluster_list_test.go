@@ -177,7 +177,7 @@ func TestListOpenShiftCluster(t *testing.T) {
 					}
 
 					if tt.dbError != nil {
-						ti.dbclients.MakeUnavailable(tt.dbError)
+						ti.dbclients.SetError(tt.dbError)
 					}
 
 					cipher := testdatabase.NewFakeCipher()

@@ -219,7 +219,7 @@ func TestDelete(t *testing.T) {
 			}
 
 			if tt.dbError != nil {
-				dbClients.Billing.MakeUnavailable(tt.dbError)
+				dbClients.Billing.SetError(tt.dbError)
 			}
 
 			m := &manager{
@@ -408,7 +408,7 @@ func TestEnsure(t *testing.T) {
 			}
 
 			if tt.dbError != nil {
-				dbClients.Billing.MakeUnavailable(tt.dbError)
+				dbClients.Billing.SetError(tt.dbError)
 			}
 
 			m := &manager{

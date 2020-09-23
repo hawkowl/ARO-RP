@@ -22,6 +22,6 @@ func fakeBillingDeletionTimestampTrigger(ctx context.Context, doc *api.BillingDo
 }
 
 func injectBilling(c *cosmosdb.FakeBillingDocumentClient) {
-	c.InjectTrigger("setCreationBillingTimeStamp", fakeBillingCreationTimestampTrigger)
-	c.InjectTrigger("setDeletionBillingTimeStamp", fakeBillingDeletionTimestampTrigger)
+	c.SetTriggerHandler("setCreationBillingTimeStamp", fakeBillingCreationTimestampTrigger)
+	c.SetTriggerHandler("setDeletionBillingTimeStamp", fakeBillingDeletionTimestampTrigger)
 }

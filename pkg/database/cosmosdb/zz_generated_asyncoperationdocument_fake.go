@@ -3,9 +3,7 @@
 package cosmosdb
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -15,127 +13,140 @@ import (
 	pkg "github.com/Azure/ARO-RP/pkg/api"
 )
 
-type FakeAsyncOperationDocumentTrigger func(context.Context, *pkg.AsyncOperationDocument) error
-type FakeAsyncOperationDocumentQuery func(AsyncOperationDocumentClient, *Query, *Options) AsyncOperationDocumentRawIterator
+type fakeAsyncOperationDocumentTriggerHandler func(context.Context, *pkg.AsyncOperationDocument) error
+type fakeAsyncOperationDocumentQueryHandler func(AsyncOperationDocumentClient, *Query, *Options) AsyncOperationDocumentRawIterator
 
 var _ AsyncOperationDocumentClient = &FakeAsyncOperationDocumentClient{}
 
-func NewFakeAsyncOperationDocumentClient(h *codec.JsonHandle, uniqueKeys []string) *FakeAsyncOperationDocumentClient {
+// NewFakeAsyncOperationDocumentClient returns a FakeAsyncOperationDocumentClient
+func NewFakeAsyncOperationDocumentClient(h *codec.JsonHandle) *FakeAsyncOperationDocumentClient {
 	return &FakeAsyncOperationDocumentClient{
-		docs:       make(map[string][]byte),
-		triggers:   make(map[string]FakeAsyncOperationDocumentTrigger),
-		queries:    make(map[string]FakeAsyncOperationDocumentQuery),
-		uniqueKeys: uniqueKeys,
-		jsonHandle: h,
-		lock:       &sync.RWMutex{},
-		sorter:     func(in []*pkg.AsyncOperationDocument) {},
+		asyncOperationDocuments: make(map[string][]byte),
+		triggerHandlers:         make(map[string]fakeAsyncOperationDocumentTriggerHandler),
+		queryHandlers:           make(map[string]fakeAsyncOperationDocumentQueryHandler),
+		jsonHandle:              h,
+		lock:                    &sync.RWMutex{},
 	}
 }
 
+// FakeAsyncOperationDocumentClient is a FakeAsyncOperationDocumentClient
 type FakeAsyncOperationDocumentClient struct {
-	docs       map[string][]byte
-	jsonHandle *codec.JsonHandle
-	lock       *sync.RWMutex
-	triggers   map[string]FakeAsyncOperationDocumentTrigger
-	queries    map[string]FakeAsyncOperationDocumentQuery
-	uniqueKeys []string
-	sorter     func([]*pkg.AsyncOperationDocument)
+	asyncOperationDocuments map[string][]byte
+	jsonHandle              *codec.JsonHandle
+	lock                    *sync.RWMutex
+	triggerHandlers         map[string]fakeAsyncOperationDocumentTriggerHandler
+	queryHandlers           map[string]fakeAsyncOperationDocumentQueryHandler
+	sorter                  func([]*pkg.AsyncOperationDocument)
 
-	// unavailable, if not nil, is an error to throw when attempting to
-	// communicate with this Client
-	unavailable error
+	// returns true if documents conflict
+	conflictChecker func(*pkg.AsyncOperationDocument, *pkg.AsyncOperationDocument) bool
+
+	// err, if not nil, is an error to return when attempting to communicate
+	// with this Client
+	err error
 }
 
-func decodeAsyncOperationDocument(s []byte, handle *codec.JsonHandle) (*pkg.AsyncOperationDocument, error) {
-	res := &pkg.AsyncOperationDocument{}
-	err := codec.NewDecoder(bytes.NewBuffer(s), handle).Decode(&res)
-	return res, err
-}
-
-func decodeAsyncOperationDocumentToMap(s []byte, handle *codec.JsonHandle) (map[interface{}]interface{}, error) {
-	var res interface{}
-	err := codec.NewDecoder(bytes.NewBuffer(s), handle).Decode(&res)
-	if err != nil {
-		return nil, err
-	}
-	ret, ok := res.(map[interface{}]interface{})
-	if !ok {
-		return nil, errors.New("Could not coerce")
-	}
-	return ret, err
-}
-
-func encodeAsyncOperationDocument(doc *pkg.AsyncOperationDocument, handle *codec.JsonHandle) (res []byte, err error) {
-	buf := &bytes.Buffer{}
-	err = codec.NewEncoder(buf, handle).Encode(doc)
-	if err != nil {
-		return
-	}
-	res = buf.Bytes()
+func (c *FakeAsyncOperationDocumentClient) decodeAsyncOperationDocument(s []byte) (asyncOperationDocument *pkg.AsyncOperationDocument, err error) {
+	err = codec.NewDecoderBytes(s, c.jsonHandle).Decode(&asyncOperationDocument)
 	return
 }
 
-func (c *FakeAsyncOperationDocumentClient) MakeUnavailable(err error) {
-	c.unavailable = err
+func (c *FakeAsyncOperationDocumentClient) encodeAsyncOperationDocument(asyncOperationDocument *pkg.AsyncOperationDocument) (b []byte, err error) {
+	err = codec.NewEncoderBytes(&b, c.jsonHandle).Encode(asyncOperationDocument)
+	return
 }
 
-func (c *FakeAsyncOperationDocumentClient) UseSorter(sorter func([]*pkg.AsyncOperationDocument)) {
-	c.sorter = sorter
-}
-
-func (c *FakeAsyncOperationDocumentClient) encodeAndCopy(doc *pkg.AsyncOperationDocument) (*pkg.AsyncOperationDocument, []byte, error) {
-	encoded, err := encodeAsyncOperationDocument(doc, c.jsonHandle)
-	if err != nil {
-		return nil, nil, err
-	}
-	res, err := decodeAsyncOperationDocument(encoded, c.jsonHandle)
-	if err != nil {
-		return nil, nil, err
-	}
-	return res, encoded, err
-}
-
-func (c *FakeAsyncOperationDocumentClient) Create(ctx context.Context, partitionkey string, doc *pkg.AsyncOperationDocument, options *Options) (*pkg.AsyncOperationDocument, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
+// SetError sets or unsets an error that will be returned on any
+// FakeAsyncOperationDocumentClient method invocation
+func (c *FakeAsyncOperationDocumentClient) SetError(err error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
+	c.err = err
+}
+
+// SetSorter sets or unsets a sorter function which will be used to sort values
+// returned by List() for test stability
+func (c *FakeAsyncOperationDocumentClient) SetSorter(sorter func([]*pkg.AsyncOperationDocument)) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.sorter = sorter
+}
+
+// SetConflictChecker sets or unsets a function which can be used to validate
+// additional unique keys in a AsyncOperationDocument
+func (c *FakeAsyncOperationDocumentClient) SetConflictChecker(conflictChecker func(*pkg.AsyncOperationDocument, *pkg.AsyncOperationDocument) bool) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.conflictChecker = conflictChecker
+}
+
+// SetTriggerHandler sets or unsets a trigger handler
+func (c *FakeAsyncOperationDocumentClient) SetTriggerHandler(triggerName string, trigger fakeAsyncOperationDocumentTriggerHandler) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.triggerHandlers[triggerName] = trigger
+}
+
+// SetQueryHandler sets or unsets a query handler
+func (c *FakeAsyncOperationDocumentClient) SetQueryHandler(queryName string, query fakeAsyncOperationDocumentQueryHandler) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.queryHandlers[queryName] = query
+}
+
+func (c *FakeAsyncOperationDocumentClient) deepCopy(asyncOperationDocument *pkg.AsyncOperationDocument) (*pkg.AsyncOperationDocument, error) {
+	b, err := c.encodeAsyncOperationDocument(asyncOperationDocument)
+	if err != nil {
+		return nil, err
+	}
+
+	return c.decodeAsyncOperationDocument(b)
+}
+
+func (c *FakeAsyncOperationDocumentClient) apply(ctx context.Context, partitionkey string, asyncOperationDocument *pkg.AsyncOperationDocument, options *Options, isCreate bool) (*pkg.AsyncOperationDocument, error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	if c.err != nil {
+		return nil, c.err
+	}
+
+	asyncOperationDocument, err := c.deepCopy(asyncOperationDocument) // copy now because pretriggers can mutate asyncOperationDocument
+	if err != nil {
+		return nil, err
+	}
+
 	if options != nil {
-		err := c.processPreTriggers(ctx, doc, options)
+		err := c.processPreTriggers(ctx, asyncOperationDocument, options)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	res, enc, err := c.encodeAndCopy(doc)
-	if err != nil {
-		return nil, err
-	}
-	docAsMap, err := decodeAsyncOperationDocumentToMap(enc, c.jsonHandle)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, ext := range c.docs {
-		extDecoded, err := decodeAsyncOperationDocumentToMap(ext, c.jsonHandle)
-		if err != nil {
-			return nil, err
+	_, exists := c.asyncOperationDocuments[asyncOperationDocument.ID]
+	if isCreate && exists {
+		return nil, &Error{
+			StatusCode: http.StatusConflict,
+			Message:    "Entity with the specified id already exists in the system",
 		}
+	}
+	if !isCreate && !exists {
+		return nil, &Error{StatusCode: http.StatusNotFound}
+	}
 
-		for _, key := range c.uniqueKeys {
-			var ourKeyStr string
-			var theirKeyStr string
-			ourKey, ourKeyOk := docAsMap[key]
-			if ourKeyOk {
-				ourKeyStr, ourKeyOk = ourKey.(string)
+	if c.conflictChecker != nil {
+		for id := range c.asyncOperationDocuments {
+			asyncOperationDocumentToCheck, err := c.decodeAsyncOperationDocument(c.asyncOperationDocuments[id])
+			if err != nil {
+				return nil, err
 			}
-			theirKey, theirKeyOk := extDecoded[key]
-			if theirKeyOk {
-				theirKeyStr, theirKeyOk = theirKey.(string)
-			}
-			if ourKeyOk && theirKeyOk && ourKeyStr != "" && ourKeyStr == theirKeyStr {
+
+			if c.conflictChecker(asyncOperationDocumentToCheck, asyncOperationDocument) {
 				return nil, &Error{
 					StatusCode: http.StatusConflict,
 					Message:    "Entity with the specified id already exists in the system",
@@ -144,121 +155,108 @@ func (c *FakeAsyncOperationDocumentClient) Create(ctx context.Context, partition
 		}
 	}
 
-	c.docs[doc.ID] = enc
-	return res, nil
+	b, err := c.encodeAsyncOperationDocument(asyncOperationDocument)
+	if err != nil {
+		return nil, err
+	}
+
+	c.asyncOperationDocuments[asyncOperationDocument.ID] = b
+
+	return asyncOperationDocument, nil
 }
 
+// Create creates a AsyncOperationDocument in the database
+func (c *FakeAsyncOperationDocumentClient) Create(ctx context.Context, partitionkey string, asyncOperationDocument *pkg.AsyncOperationDocument, options *Options) (*pkg.AsyncOperationDocument, error) {
+	return c.apply(ctx, partitionkey, asyncOperationDocument, options, true)
+}
+
+// Replace replaces a AsyncOperationDocument in the database
+func (c *FakeAsyncOperationDocumentClient) Replace(ctx context.Context, partitionkey string, asyncOperationDocument *pkg.AsyncOperationDocument, options *Options) (*pkg.AsyncOperationDocument, error) {
+	return c.apply(ctx, partitionkey, asyncOperationDocument, options, false)
+}
+
+// List returns a AsyncOperationDocumentIterator to list all AsyncOperationDocuments in the database
 func (c *FakeAsyncOperationDocumentClient) List(*Options) AsyncOperationDocumentIterator {
-	if c.unavailable != nil {
-		return NewFakeAsyncOperationDocumentClientErroringRawIterator(c.unavailable)
-	}
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	docs := make([]*pkg.AsyncOperationDocument, 0, len(c.docs))
-	for _, d := range c.docs {
-		r, err := decodeAsyncOperationDocument(d, c.jsonHandle)
+	if c.err != nil {
+		return NewFakeAsyncOperationDocumentErroringRawIterator(c.err)
+	}
+
+	asyncOperationDocuments := make([]*pkg.AsyncOperationDocument, 0, len(c.asyncOperationDocuments))
+	for _, d := range c.asyncOperationDocuments {
+		r, err := c.decodeAsyncOperationDocument(d)
 		if err != nil {
-			return NewFakeAsyncOperationDocumentClientErroringRawIterator(err)
+			return NewFakeAsyncOperationDocumentErroringRawIterator(err)
 		}
-		docs = append(docs, r)
+		asyncOperationDocuments = append(asyncOperationDocuments, r)
 	}
-	c.sorter(docs)
-	return NewFakeAsyncOperationDocumentClientRawIterator(docs, 0)
+
+	if c.sorter != nil {
+		c.sorter(asyncOperationDocuments)
+	}
+
+	return NewFakeAsyncOperationDocumentIterator(asyncOperationDocuments, 0)
 }
 
-func (c *FakeAsyncOperationDocumentClient) ListAll(context.Context, *Options) (*pkg.AsyncOperationDocuments, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
+// ListAll lists all AsyncOperationDocuments in the database
+func (c *FakeAsyncOperationDocumentClient) ListAll(ctx context.Context, options *Options) (*pkg.AsyncOperationDocuments, error) {
+	iter := c.List(options)
+	return iter.Next(ctx, -1)
+}
+
+// Get gets a AsyncOperationDocument from the database
+func (c *FakeAsyncOperationDocumentClient) Get(ctx context.Context, partitionkey string, id string, options *Options) (*pkg.AsyncOperationDocument, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	asyncOperationDocuments := &pkg.AsyncOperationDocuments{
-		Count:                   len(c.docs),
-		AsyncOperationDocuments: make([]*pkg.AsyncOperationDocument, 0, len(c.docs)),
+	if c.err != nil {
+		return nil, c.err
 	}
 
-	for _, d := range c.docs {
-		dec, err := decodeAsyncOperationDocument(d, c.jsonHandle)
-		if err != nil {
-			return nil, err
-		}
-		asyncOperationDocuments.AsyncOperationDocuments = append(asyncOperationDocuments.AsyncOperationDocuments, dec)
-	}
-	c.sorter(asyncOperationDocuments.AsyncOperationDocuments)
-	return asyncOperationDocuments, nil
-}
-
-func (c *FakeAsyncOperationDocumentClient) Get(ctx context.Context, partitionkey string, documentId string, options *Options) (*pkg.AsyncOperationDocument, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-
-	out, ext := c.docs[documentId]
-	if !ext {
-		return nil, &Error{StatusCode: http.StatusNotFound}
-	}
-	return decodeAsyncOperationDocument(out, c.jsonHandle)
-}
-
-func (c *FakeAsyncOperationDocumentClient) Replace(ctx context.Context, partitionkey string, doc *pkg.AsyncOperationDocument, options *Options) (*pkg.AsyncOperationDocument, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	_, exists := c.docs[doc.ID]
+	asyncOperationDocument, exists := c.asyncOperationDocuments[id]
 	if !exists {
 		return nil, &Error{StatusCode: http.StatusNotFound}
 	}
 
-	if options != nil {
-		err := c.processPreTriggers(ctx, doc, options)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	res, enc, err := c.encodeAndCopy(doc)
-	if err != nil {
-		return nil, err
-	}
-	c.docs[doc.ID] = enc
-	return res, nil
+	return c.decodeAsyncOperationDocument(asyncOperationDocument)
 }
 
-func (c *FakeAsyncOperationDocumentClient) Delete(ctx context.Context, partitionKey string, doc *pkg.AsyncOperationDocument, options *Options) error {
-	if c.unavailable != nil {
-		return c.unavailable
-	}
+// Delete deletes a AsyncOperationDocument from the database
+func (c *FakeAsyncOperationDocumentClient) Delete(ctx context.Context, partitionKey string, asyncOperationDocument *pkg.AsyncOperationDocument, options *Options) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	_, ext := c.docs[doc.ID]
-	if !ext {
+	if c.err != nil {
+		return c.err
+	}
+
+	_, exists := c.asyncOperationDocuments[asyncOperationDocument.ID]
+	if !exists {
 		return &Error{StatusCode: http.StatusNotFound}
 	}
 
-	delete(c.docs, doc.ID)
+	delete(c.asyncOperationDocuments, asyncOperationDocument.ID)
 	return nil
 }
 
+// ChangeFeed is unimplemented
 func (c *FakeAsyncOperationDocumentClient) ChangeFeed(*Options) AsyncOperationDocumentIterator {
-	if c.unavailable != nil {
-		return NewFakeAsyncOperationDocumentClientErroringRawIterator(c.unavailable)
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	if c.err != nil {
+		return NewFakeAsyncOperationDocumentErroringRawIterator(c.err)
 	}
-	return NewFakeAsyncOperationDocumentClientErroringRawIterator(ErrNotImplemented)
+
+	return NewFakeAsyncOperationDocumentErroringRawIterator(ErrNotImplemented)
 }
 
-func (c *FakeAsyncOperationDocumentClient) processPreTriggers(ctx context.Context, doc *pkg.AsyncOperationDocument, options *Options) error {
-	for _, trigger := range options.PreTriggers {
-		trig, ok := c.triggers[trigger]
-		if ok {
-			err := trig(ctx, doc)
+func (c *FakeAsyncOperationDocumentClient) processPreTriggers(ctx context.Context, asyncOperationDocument *pkg.AsyncOperationDocument, options *Options) error {
+	for _, triggerName := range options.PreTriggers {
+		if triggerHandler := c.triggerHandlers[triggerName]; triggerHandler != nil {
+			err := triggerHandler(ctx, asyncOperationDocument)
 			if err != nil {
 				return err
 			}
@@ -266,104 +264,82 @@ func (c *FakeAsyncOperationDocumentClient) processPreTriggers(ctx context.Contex
 			return ErrNotImplemented
 		}
 	}
+
 	return nil
 }
 
+// Query calls a query handler to implement database querying
 func (c *FakeAsyncOperationDocumentClient) Query(name string, query *Query, options *Options) AsyncOperationDocumentRawIterator {
-	if c.unavailable != nil {
-		return NewFakeAsyncOperationDocumentClientErroringRawIterator(c.unavailable)
-	}
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	quer, ok := c.queries[query.Query]
-	if ok {
-		return quer(c, query, options)
-	} else {
-		return NewFakeAsyncOperationDocumentClientErroringRawIterator(ErrNotImplemented)
+	if c.err != nil {
+		return NewFakeAsyncOperationDocumentErroringRawIterator(c.err)
 	}
+
+	if queryHandler := c.queryHandlers[query.Query]; queryHandler != nil {
+		return queryHandler(c, query, options)
+	}
+
+	return NewFakeAsyncOperationDocumentErroringRawIterator(ErrNotImplemented)
 }
 
+// QueryAll calls a query handler to implement database querying
 func (c *FakeAsyncOperationDocumentClient) QueryAll(ctx context.Context, partitionkey string, query *Query, options *Options) (*pkg.AsyncOperationDocuments, error) {
-	if c.unavailable != nil {
-		return nil, c.unavailable
-	}
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-
-	quer, ok := c.queries[query.Query]
-	if ok {
-		items := quer(c, query, options)
-		res := &pkg.AsyncOperationDocuments{}
-		err := items.NextRaw(ctx, -1, res)
-		return res, err
-	} else {
-		return nil, ErrNotImplemented
-	}
+	iter := c.Query("", query, options)
+	return iter.Next(ctx, -1)
 }
 
-func (c *FakeAsyncOperationDocumentClient) InjectTrigger(trigger string, impl FakeAsyncOperationDocumentTrigger) {
-	c.triggers[trigger] = impl
+func NewFakeAsyncOperationDocumentIterator(asyncOperationDocuments []*pkg.AsyncOperationDocument, continuation int) AsyncOperationDocumentRawIterator {
+	return &fakeAsyncOperationDocumentIterator{asyncOperationDocuments: asyncOperationDocuments, continuation: continuation}
 }
 
-func (c *FakeAsyncOperationDocumentClient) InjectQuery(query string, impl FakeAsyncOperationDocumentQuery) {
-	c.queries[query] = impl
+type fakeAsyncOperationDocumentIterator struct {
+	asyncOperationDocuments []*pkg.AsyncOperationDocument
+	continuation            int
+	done                    bool
 }
 
-// NewFakeAsyncOperationDocumentClientRawIterator creates a RawIterator that will produce only
-// AsyncOperationDocuments from Next() and NextRaw().
-func NewFakeAsyncOperationDocumentClientRawIterator(docs []*pkg.AsyncOperationDocument, continuation int) AsyncOperationDocumentRawIterator {
-	return &fakeAsyncOperationDocumentClientRawIterator{docs: docs, continuation: continuation}
+func (i *fakeAsyncOperationDocumentIterator) NextRaw(ctx context.Context, maxItemCount int, out interface{}) error {
+	return ErrNotImplemented
 }
 
-type fakeAsyncOperationDocumentClientRawIterator struct {
-	docs         []*pkg.AsyncOperationDocument
-	continuation int
-}
-
-func (i *fakeAsyncOperationDocumentClientRawIterator) Next(ctx context.Context, maxItemCount int) (*pkg.AsyncOperationDocuments, error) {
-	out := &pkg.AsyncOperationDocuments{}
-	err := i.NextRaw(ctx, maxItemCount, out)
-
-	if out.Count == 0 {
+func (i *fakeAsyncOperationDocumentIterator) Next(ctx context.Context, maxItemCount int) (*pkg.AsyncOperationDocuments, error) {
+	if i.done {
 		return nil, nil
 	}
-	return out, err
-}
 
-func (i *fakeAsyncOperationDocumentClientRawIterator) NextRaw(ctx context.Context, maxItemCount int, out interface{}) error {
-	if i.continuation >= len(i.docs) {
-		return nil
-	}
-
-	var docs []*pkg.AsyncOperationDocument
+	var asyncOperationDocuments []*pkg.AsyncOperationDocument
 	if maxItemCount == -1 {
-		docs = i.docs[i.continuation:]
-		i.continuation = len(i.docs)
+		asyncOperationDocuments = i.asyncOperationDocuments[i.continuation:]
+		i.continuation = len(i.asyncOperationDocuments)
+		i.done = true
 	} else {
 		max := i.continuation + maxItemCount
-		if max > len(i.docs) {
-			max = len(i.docs)
+		if max > len(i.asyncOperationDocuments) {
+			max = len(i.asyncOperationDocuments)
 		}
-		docs = i.docs[i.continuation:max]
+		asyncOperationDocuments = i.asyncOperationDocuments[i.continuation:max]
 		i.continuation += max
+		i.done = i.Continuation() == ""
 	}
 
-	d := out.(*pkg.AsyncOperationDocuments)
-	d.AsyncOperationDocuments = docs
-	d.Count = len(d.AsyncOperationDocuments)
-	return nil
+	return &pkg.AsyncOperationDocuments{
+		AsyncOperationDocuments: asyncOperationDocuments,
+		Count:                   len(asyncOperationDocuments),
+	}, nil
 }
 
-func (i *fakeAsyncOperationDocumentClientRawIterator) Continuation() string {
-	if i.continuation >= len(i.docs) {
+func (i *fakeAsyncOperationDocumentIterator) Continuation() string {
+	if i.continuation >= len(i.asyncOperationDocuments) {
 		return ""
 	}
 	return fmt.Sprintf("%d", i.continuation)
 }
 
-// fakeAsyncOperationDocumentErroringRawIterator is a RawIterator that will return an error on use.
-func NewFakeAsyncOperationDocumentClientErroringRawIterator(err error) *fakeAsyncOperationDocumentErroringRawIterator {
+// NewFakeAsyncOperationDocumentErroringRawIterator returns a AsyncOperationDocumentRawIterator which
+// whose methods return the given error
+func NewFakeAsyncOperationDocumentErroringRawIterator(err error) AsyncOperationDocumentRawIterator {
 	return &fakeAsyncOperationDocumentErroringRawIterator{err: err}
 }
 

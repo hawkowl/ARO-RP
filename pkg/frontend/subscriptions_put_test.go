@@ -238,7 +238,7 @@ func TestPutSubscription(t *testing.T) {
 			defer ti.done()
 
 			if tt.dbError != nil {
-				ti.dbclients.MakeUnavailable(tt.dbError)
+				ti.dbclients.SetError(tt.dbError)
 			}
 
 			err = ti.buildFixtures(tt.fixture)

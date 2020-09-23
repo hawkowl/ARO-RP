@@ -159,7 +159,7 @@ func TestGetAsyncOperationsStatus(t *testing.T) {
 			}
 
 			if tt.dbError != nil {
-				ti.dbclients.MakeUnavailable(tt.dbError)
+				ti.dbclients.SetError(tt.dbError)
 			}
 
 			f, err := NewFrontend(ctx, ti.log, ti.env, ti.db, api.APIs, &noop.Noop{}, nil, nil)

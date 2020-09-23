@@ -120,7 +120,7 @@ func TestAdminListOpenShiftCluster(t *testing.T) {
 			cipher := testdatabase.NewFakeCipher()
 
 			if tt.throwsError != nil {
-				ti.dbclients.MakeUnavailable(tt.throwsError)
+				ti.dbclients.SetError(tt.throwsError)
 			}
 
 			f, err := NewFrontend(ctx, ti.log, ti.env, ti.db, api.APIs, &noop.Noop{}, cipher, nil)

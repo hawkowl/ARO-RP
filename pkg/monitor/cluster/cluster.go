@@ -52,11 +52,17 @@ func NewMonitor(ctx context.Context, dialer proxy.Dialer, log *logrus.Entry, oc 
 		return nil, err
 	}
 
+	rCluster, err := azure.ParseResourceID(oc.Properties.ClusterProfile.ResourceGroupID)
+	if err != nil {
+		return nil, err
+	}
+
 	dims := map[string]string{
-		"resourceId":     oc.ID,
-		"subscriptionId": r.SubscriptionID,
-		"resourceGroup":  r.ResourceGroup,
-		"resourceName":   r.ResourceName,
+		"resourceId":           oc.ID,
+		"subscriptionId":       r.SubscriptionID,
+		"resourceGroup":        r.ResourceGroup,
+		"resourceName":         r.ResourceName,
+		"clusterResourceGroup": rCluster.ResourceGroup,
 	}
 
 	restConfig, err := restconfig.RestConfig(dialer, oc)

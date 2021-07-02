@@ -249,6 +249,7 @@ func (p *portal) aadAuthenticatedRoutes(r *mux.Router) {
 
 	r.NewRoute().Methods(http.MethodGet).Path("/api/clusters").HandlerFunc(p.clusters)
 	r.NewRoute().Methods(http.MethodGet).Path("/api/info").HandlerFunc(p.info)
+	r.NewRoute().Methods(http.MethodGet).Path("/api/{subscription}/{resourceGroup}/{name}/clusterinfo").HandlerFunc(p.clusterInfo)
 }
 
 func (p *portal) serve(path string) func(w http.ResponseWriter, r *http.Request) {
